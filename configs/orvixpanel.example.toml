@@ -1,0 +1,101 @@
+# OrvixPanel — example configuration.
+# Copy to /etc/orvixpanel/orvixpanel.toml and edit.
+# All values can be overridden by environment variables: ORVIX_<UPPER_SNAKE_CASE_PATH>
+
+[server]
+bind_addr     = "0.0.0.0:8443"
+external_url  = "https://panel.yourhost.com"
+secret_key    = "REPLACE-WITH-64-RANDOM-BYTES-BASE64-ENCODED"
+debug         = false
+read_timeout  = "30s"
+write_timeout = "30s"
+idle_timeout  = "120s"
+# tls_cert = "/etc/orvixpanel/certs/panel.crt"
+# tls_key  = "/etc/orvixpanel/certs/panel.key"
+
+[license]
+key = "ORVIX-SMB-2025-XXXXXXXX-YYYYYYYY"
+offline_grace_days = 7
+server_url = "https://license.orvixpanel.com"
+
+[database]
+# driver = "sqlite"   (default, single-server)
+# driver = "postgres" (ISP/Enterprise tier)
+driver = "sqlite"
+dsn    = "/var/lib/orvixpanel/data.db"
+max_open_conns    = 25
+max_idle_conns    = 5
+conn_max_lifetime = "5m"
+# For postgres:
+# dsn = "host=localhost user=orvix dbname=orvix sslmode=require password=secret"
+
+[redis]
+addr     = "localhost:6379"
+password = ""
+db       = 0
+
+[ssl]
+auto_ssl       = true
+acme_email     = "admin@yourhost.com"
+acme_directory = "https://acme-v02.api.letsencrypt.org/directory"
+cert_dir       = "/etc/orvixpanel/certs"
+
+[guardian]
+enabled           = true
+collect_interval  = "1s"
+anomaly_threshold = 3.5
+llm_provider      = ""     # "openai", "anthropic", "ollama"
+llm_api_key       = ""
+llm_model         = "gpt-4o"
+
+[mail]
+postlane_url     = "http://localhost:9090"
+postlane_api_key = ""
+postlane_timeout = "10s"
+
+[firewall]
+ebpf_enabled     = true
+crowdsec_enabled = true
+crowdsec_url     = "http://localhost:8080"
+crowdsec_api_key = ""
+
+[waf]
+enabled        = true
+mode           = "prevention"  # or "detection"
+paranoia_level = 2              # 1-4
+ruleset        = "OWASP-CRS-3.3"
+custom_rules_dir = "/etc/orvixpanel/waf/custom/"
+
+[backup]
+default_retention_days = 30
+# S3-compatible object storage (optional)
+# s3_endpoint   = "https://s3.amazonaws.com"
+# s3_bucket     = "orvixpanel-backups"
+# s3_access_key = ""
+# s3_secret_key = ""
+# s3_region     = "us-east-1"
+
+[notifications]
+smtp_host     = ""
+smtp_port     = 587
+smtp_user     = ""
+smtp_pass     = ""
+from_email    = "noreply@yourhost.com"
+slack_webhook = ""
+
+[audit]
+enabled        = true
+sink           = "db"            # "db" | "file" | "both"
+file_path      = "/var/log/orvixpanel/audit.log"
+siem_enabled   = false
+siem_format    = "cef"
+siem_transport = "udp"
+siem_endpoint  = "siem.internal:514"
+
+[auth]
+access_token_ttl       = "15m"
+refresh_token_ttl      = "720h"   # 30 days
+max_failed_logins      = 5
+lockout_duration       = "15m"
+bcrypt_cost            = 12
+require_2fa_for_admins = false

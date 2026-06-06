@@ -1,0 +1,78 @@
+# ─── Build artifacts ────────────────────────────────────────────
+bin/
+coverage.out
+coverage.html
+*.test
+
+# ─── Compiled binaries ─────────────────────────────────────────
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# ─── Go vendor + cache ────────────────────────────────────────
+vendor/
+
+# ─── Frontend (Node / Vite / React) ───────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/dist/
+.next/
+.npm
+.eslintcache
+
+# ─── Databases + local data ───────────────────────────────────
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+bin/*.db
+
+# ─── Local config (NEVER commit secrets) ──────────────────────
+.env
+.env.local
+.env.*.local
+orvixpanel.toml
+orvixpanel.local.toml
+license.key
+*.key
+*.pem
+*.crt
+
+# ─── Logs + runtime output ────────────────────────────────────
+*.log
+logs/
+out.log
+err.log
+
+# ─── Backups + staging ────────────────────────────────────────
+backup/
+backups/
+*.bak
+*.swp
+*.tmp
+*.tar.gz
+temp/
+tmp/
+
+# ─── Generated docs (kept in repo, but the local build can skip) ──
+# (none — the Markdown is hand-written)
+
+# ─── OS junk ───────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Editors + IDEs ───────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*~
+
+# ─── Local test fixtures (committed examples stay; per-test ones don't) ──
+test.db
+testing/
