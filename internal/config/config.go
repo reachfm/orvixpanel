@@ -58,8 +58,38 @@ type AuthConfig struct {
 }
 
 // Load reads configuration from TOML + environment.
+//
+// v0.2.1 also reads /etc/orvixpanel/orvixpanel.env (the systemd
+// EnvironmentFile shipped by the installer) and exports every
+// KEY=VALUE line into os.Environ so viper picks them up.
 func Load() (*Config, error) {
 	v := viper.New()
+
+	// Optional .env-style file. Lines like
+	//   ORVIX_SERVER_SECRET_KEY=foo
+	//   # comment
+	// become os.Setenv before viper.AutomaticEnv runs.
+	envFile := os.Getenv("ORVIX_ENV_FILE")
+	if envFile == "" {
+		envFile = "/etc/orvixpanel/orvixpanel.env"
+	}
+	if data, err := os.ReadFile(envFile); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			eq := strings.IndexByte(line, '=')
+			if eq <= 0 {
+				continue
+			}
+			k := strings.TrimSpace(line[:eq])
+			val := strings.TrimSpace(line[eq+1:])
+			if _, exists := os.LookupEnv(k); !exists {
+				_ = os.Setenv(k, val)
+			}
+		}
+	}
 
 	// Defaults — keep a fresh install functional.
 	v.SetDefault("server.bind_addr", "0.0.0.0:8443")
@@ -83,11 +113,15 @@ func Load() (*Config, error) {
 	v.SetDefault("auth.lockout_duration", "15m")
 	v.SetDefault("auth.bcrypt_cost", 12)
 
-	// File lookup.
+	// File lookup. The production config file is orvixpanel.toml
+	// in /etc/orvixpanel (or ./configs, or .). We DO NOT search
+	// for the bare name "orvixpanel" because v0.2.1 ships an
+	// orvixpanel.env (a systemd EnvironmentFile) in the same dir
+	// and viper would try to parse it as TOML.
 	if p := os.Getenv("ORVIX_CONFIG"); p != "" {
 		v.SetConfigFile(p)
 	} else {
-		v.SetConfigName("orvixpanel")
+		v.SetConfigName("orvixpanel.toml")
 		v.SetConfigType("toml")
 		v.AddConfigPath("/etc/orvixpanel")
 		v.AddConfigPath("./configs")
@@ -97,6 +131,18 @@ func Load() (*Config, error) {
 	v.SetEnvPrefix("ORVIX")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
+	// Explicit BindEnv for every key that has both a dot AND an
+	// underscore in its struct path (viper's auto-env replace
+	// mangles those, so BindEnv is required for unambiguous lookup).
+	v.BindEnv("server.bind_addr", "ORVIX_SERVER_BIND_ADDR")
+	v.BindEnv("server.external_url", "ORVIX_SERVER_EXTERNAL_URL")
+	v.BindEnv("server.secret_key", "ORVIX_SERVER_SECRET_KEY")
+	v.BindEnv("license.key", "ORVIX_LICENSE_KEY")
+	v.BindEnv("database.dsn", "ORVIX_DATABASE_DSN")
+	v.BindEnv("redis.addr", "ORVIX_REDIS_ADDR")
+	v.BindEnv("redis.password", "ORVIX_REDIS_PASSWORD")
+	v.BindEnv("auth.access_token_ttl", "ORVIX_AUTH_ACCESS_TOKEN_TTL")
+	v.BindEnv("auth.refresh_token_ttl", "ORVIX_AUTH_REFRESH_TOKEN_TTL")
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {

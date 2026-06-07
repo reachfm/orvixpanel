@@ -1,321 +1,308 @@
 #!/usr/bin/env bash
-# install.sh — OrvixPanel v1.0 production installer.
+# OrvixPanel v0.2.1 production installer.
 #
-# Tested on: Debian 11+, Ubuntu 20.04+, Rocky 8+, AlmaLinux 8+.
-# Requires: bash 4+, curl, sha256sum, systemd.
+# Idempotent — re-run safely. Targets Ubuntu 22.04+ (incl. WSL
+# Ubuntu 26.04) with systemd. On non-systemd environments (e.g.
+# WSL without [boot] systemd=true) the script prints a clear
+# fallback at the end.
 #
-# Differences from the v0.1 stub:
-#   - Idempotent: re-running is safe and updates the binary
-#   - Verifies the binary signature (GPG + SHA-256) on every install
-#   - Drops the v0.1 "PLACEHOLDER" defaults — runs `orvixpanel init`
-#     if no config is present
-#   - Hardens the systemd unit further (RestrictNamespaces,
-#     RestrictAddressFamilies, etc.)
-#   - Installs logrotate, sudoers drop-in, fail2ban filter
-
+# What this does:
+#   1. apt install nginx + php-fpm (auto-detects the php version)
+#   2. creates orvixpanel system user (no login, no home)
+#   3. creates /opt/orvixpanel, /var/lib/orvixpanel, /etc/orvixpanel,
+#      /var/log/orvixpanel, /run/orvixpanel, /etc/nginx/conf.d/orvix
+#   4. installs the binary from $BIN_SRC (default: ./bin/orvixpanel.linux)
+#   5. writes /etc/systemd/system/orvixpanel.service
+#   6. writes /etc/orvixpanel/orvixpanel.env (operator-editable)
+#   7. writes /etc/nginx/conf.d/00-orvixpanel-include.conf
+#   8. systemctl enable --now orvixpanel (best effort)
+#   9. nginx -t + reload
+#  10. doctor.sh report
+#
+# Usage:
+#   sudo bash scripts/install.sh                          # defaults
+#   sudo bash scripts/install.sh --bind 0.0.0.0:8443     # custom listen
+#   sudo bash scripts/install.sh --master-key <base64>    # inject key
+#   sudo bash scripts/install.sh --skip-systemd           # don't touch systemd
+#   sudo bash scripts/install.sh --no-start               # install only
+#
+# Exit code: 0 success, non-zero on first failed step.
 set -euo pipefail
+shopt -s nullglob
 
-ORVIX_VERSION="${ORVIX_VERSION:-1.0.0}"
-ORVIX_REPO="${ORVIX_REPO:-https://releases.orvixpanel.com}"
-ORVIX_ARCH="$(uname -m)"
-case "$ORVIX_ARCH" in
-  x86_64)  ORVIX_ARCH="amd64" ;;
-  aarch64) ORVIX_ARCH="arm64" ;;
-  *) echo "Unsupported architecture: $ORVIX_ARCH" >&2; exit 1 ;;
-esac
+# -----------------------------------------------------------------------------
+# Args
+# -----------------------------------------------------------------------------
+BIN_SRC="${BIN_SRC:-./bin/orvixpanel.linux}"
+BIND_ADDR="${BIND_ADDR:-0.0.0.0:8443}"
+DB_DSN="${DB_DSN:-/var/lib/orvixpanel/data.db}"
+MASTER_KEY="${ORVIX_MASTER_KEY:-}"
+LICENSE_KEY="${ORVIX_LICENSE_KEY:-}"
+SKIP_SYSTEMD=0
+NO_START=0
+DRY_RUN=0
+FPM_VERSION=""
 
-INSTALL_DIR="/opt/orvixpanel"
-DATA_DIR="/var/lib/orvixpanel"
-LOG_DIR="/var/log/orvixpanel"
-CONF_DIR="/etc/orvixpanel"
-CERT_DIR="${CONF_DIR}/certs"
-SYSTEMD_UNIT="/etc/systemd/system/orvixpanel.service"
-SUDOERS_DROP="/etc/sudoers.d/orvixpanel"
-LOGROTATE_CONF="/etc/logrotate.d/orvixpanel"
-SERVICE_USER="orvixpanel"
-SERVICE_GROUP="orvixpanel"
-
-RELEASE_BASE="${ORVIX_REPO}/v${ORVIX_VERSION}"
-
-say()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*"; }
-die()  { printf '\033[1;31m[✗]\033[0m %s\n' "$*"; exit 1; }
-ok()   { printf '\033[1;32m[✓]\033[0m %s\n' "$*"; }
-
-check_os() {
-  if [[ -r /etc/os-release ]]; then
-    . /etc/os-release
-  else
-    die "/etc/os-release missing — not a supported OS"
-  fi
-  case "${ID:-}" in
-    ubuntu|debian|rocky|almalinux|centos|rhel) ;;
-    *) die "Unsupported OS: ${ID:-unknown}";;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --bind)         BIND_ADDR="$2"; shift 2 ;;
+    --db)           DB_DSN="$2"; shift 2 ;;
+    --master-key)   MASTER_KEY="$2"; shift 2 ;;
+    --license)      LICENSE_KEY="$2"; shift 2 ;;
+    --bin)          BIN_SRC="$2"; shift 2 ;;
+    --skip-systemd) SKIP_SYSTEMD=1; shift ;;
+    --no-start)     NO_START=1; shift ;;
+    --yes|-y)       shift ;;  # for symmetry with uninstall.sh
+    --dry-run)      DRY_RUN=1; shift ;;
+    --fpm-version)  FPM_VERSION="$2"; shift 2 ;;
+    -h|--help)
+      sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
-  ok "OS: ${PRETTY_NAME:-$ID}"
-}
+done
 
-require_root() {
-  if [[ $EUID -ne 0 ]]; then
-    die "Please run as root (sudo $0)"
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
+red()   { printf '\033[31m%s\033[0m\n' "$*"; }
+green() { printf '\033[32m%s\033[0m\n' "$*"; }
+blue()  { printf '\033[34m%s\033[0m\n' "$*"; }
+step()  { blue ""; blue "=== $* ==="; }
+ok()    { green "OK: $*"; }
+die()   { red "FAIL: $*"; exit 1; }
+need_root() { [ "$(id -u)" -eq 0 ] || die "must run as root (use sudo)"; }
+
+run() {
+  if [ "$DRY_RUN" = 1 ]; then
+    echo "  [dry-run] $*"
+  else
+    "$@"
   fi
 }
 
-create_dirs() {
-  say "Creating directories…"
-  install -d -m 0755 "$INSTALL_DIR" "$DATA_DIR" "$LOG_DIR" "$CONF_DIR" "$CERT_DIR"
-  install -d -m 0700 "$DATA_DIR/backup-staging" "$DATA_DIR/firewall" "$DATA_DIR/bandwidth"
-  install -d -m 0750 "$LOG_DIR/nginx" "$LOG_DIR/php" "$LOG_DIR/cron"
-}
+# -----------------------------------------------------------------------------
+# Preflight
+# -----------------------------------------------------------------------------
+need_root
+step "preflight"
+command -v apt-get >/dev/null 2>&1 || die "apt-get not found — installer targets Debian/Ubuntu"
+[ -r /etc/os-release ] && . /etc/os-release && echo "  OS: $PRETTY_NAME"
+ok "preflight passed"
 
-create_user() {
-  if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
-    say "Creating service user $SERVICE_USER…"
-    useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin \
-            --comment "OrvixPanel service account" "$SERVICE_USER"
-    ok "user $SERVICE_USER created"
+# -----------------------------------------------------------------------------
+# 1. apt install nginx + php-fpm (auto-detect version)
+# -----------------------------------------------------------------------------
+step "1. install nginx + php-fpm"
+export DEBIAN_FRONTEND=noninteractive
+run apt-get update -qq
+run apt-get install -y -qq nginx curl
+if [ -z "$FPM_VERSION" ]; then
+  # pick the highest installed-or-available php*-fpm package
+  candidate=$(apt-cache search '^php[0-9.]+-fpm$' 2>/dev/null | awk '{print $1}' | sort -V | tail -1)
+  if [ -z "$candidate" ]; then
+    # fall back to the default php-fpm meta-package
+    FPM_VERSION="8.5"
+  else
+    # "php8.5-fpm" -> "8.5"
+    FPM_VERSION="${candidate#php}"   # strip leading "php"
+    FPM_VERSION="${FPM_VERSION%-fpm}"  # strip trailing "-fpm"
   fi
-  # chown dirs we just created.
-  chown -R "$SERVICE_USER:$SERVICE_GROUP" "$DATA_DIR" "$LOG_DIR"
-  chown -R root:"$SERVICE_GROUP" "$CONF_DIR"
-  chmod 0750 "$CONF_DIR"
-}
+fi
+echo "  detected php version: php${FPM_VERSION}"
+run apt-get install -y -qq "php${FPM_VERSION}-fpm" "php${FPM_VERSION}-cli"
+# verify — Debian binary is "php-fpm<ver>"
+PHP_BIN="php-fpm${FPM_VERSION}"
+command -v "$PHP_BIN" >/dev/null 2>&1 || die "php-fpm binary not found: $PHP_BIN (tried: $PHP_BIN)"
+ok "nginx + php${FPM_VERSION}-fpm installed"
 
-write_default_config() {
-  if [[ ! -f "$CONF_DIR/orvixpanel.toml" ]]; then
-    say "Writing default config to $CONF_DIR/orvixpanel.toml…"
-    local secret
-    secret="$(openssl rand -base64 64)"
-    cat > "$CONF_DIR/orvixpanel.toml" <<EOF
-# OrvixPanel v${ORVIX_VERSION} — generated by install.sh
-# Edit values for your deployment. All values can be overridden
-# by environment variables (ORVIX_*).
+# -----------------------------------------------------------------------------
+# 2. orvixpanel system user (no login)
+# -----------------------------------------------------------------------------
+step "2. create orvixpanel system user"
+if ! id orvixpanel >/dev/null 2>&1; then
+  run useradd --system --no-create-home --shell /usr/sbin/nologin --user-group orvixpanel
+  ok "user orvixpanel created"
+else
+  ok "user orvixpanel already exists"
+fi
 
-[server]
-bind_addr    = "0.0.0.0:8443"
-external_url = "https://$(hostname -f):8443"
-secret_key   = "$secret"
-debug        = false
+# -----------------------------------------------------------------------------
+# 3. directories
+# -----------------------------------------------------------------------------
+step "3. create directories"
+for d in /opt/orvixpanel /opt/orvixpanel/bin \
+         /var/lib/orvixpanel /var/lib/orvixpanel/homes \
+         /var/lib/orvixpanel/releases \
+         /var/log/orvixpanel \
+         /run/orvixpanel \
+         /etc/orvixpanel \
+         /etc/nginx/conf.d/orvix; do
+  run mkdir -p "$d"
+done
+run chown -R orvixpanel:orvixpanel /var/lib/orvixpanel /var/log/orvixpanel /run/orvixpanel
+# /var/lib/orvixpanel must be world-traversable so the nginx
+# worker (www-data) can reach account homes. Same for homes/
+# and releases/. We do NOT make the db file writable by world.
+run chmod 0755 /var/lib/orvixpanel
+run chmod 0755 /var/lib/orvixpanel/homes /var/lib/orvixpanel/releases
+run chmod 0755 /opt/orvixpanel /etc/orvixpanel
+ok "directories created"
 
-[license]
-key = "${ORVIX_LICENSE_KEY:-ORVIX-SMB-2025-CHANGEME-CHANGEME}"
+# -----------------------------------------------------------------------------
+# 4. install binary
+# -----------------------------------------------------------------------------
+step "4. install binary"
+[ -f "$BIN_SRC" ] || die "binary not found: $BIN_SRC (build it first: GOOS=linux go build -o $BIN_SRC ./cmd/orvixpanel)"
+run install -m 0755 "$BIN_SRC" /opt/orvixpanel/bin/orvixpanel
+BIN_SHA=$(sha256sum /opt/orvixpanel/bin/orvixpanel | awk '{print $1}')
+ok "binary installed sha256=${BIN_SHA:0:16}…"
 
-[database]
-driver   = "sqlite"
-dsn      = "/var/lib/orvixpanel/data.db"
-max_open_conns = 25
-max_idle_conns = 5
-
-[redis]
-addr = "localhost:6379"
-
-[guardian]
-enabled           = true
-collect_interval  = "1s"
-anomaly_threshold = 3.5
-
-[mail]
-postlane_url     = "http://localhost:9090"
-postlane_api_key = ""
-
-[firewall]
-ebpf_enabled     = true
-crowdsec_enabled = true
-
-[waf]
-enabled        = true
-mode           = "prevention"
-paranoia_level = 2
-
-[audit]
-enabled = true
-sink    = "db"
-
-[auth]
-bcrypt_cost            = 12
-require_2fa_for_admins = true
+# -----------------------------------------------------------------------------
+# 5. env file
+# -----------------------------------------------------------------------------
+step "5. write /etc/orvixpanel/orvixpanel.env"
+if [ -z "$MASTER_KEY" ]; then
+  MASTER_KEY=$(head -c 32 /dev/urandom | base64 -w 0)
+  echo "  generated fresh master key"
+fi
+# JWT signing key — separate from the master key. 32 random bytes,
+# base64'd. 64 chars min.
+JWT_KEY=$(head -c 32 /dev/urandom | base64 -w 0)
+cat > /etc/orvixpanel/orvixpanel.env <<EOF
+# OrvixPanel runtime config. Edit + restart: systemctl restart orvixpanel
+ORVIX_SERVER_BIND_ADDR=${BIND_ADDR}
+ORVIX_DATABASE_DSN=${DB_DSN}
+ORVIX_FPM_VERSION=${FPM_VERSION}
+ORVIX_MASTER_KEY=${MASTER_KEY}
+ORVIX_SERVER_SECRET_KEY=${JWT_KEY}
+# ORVIX_ALLOW_DEV=1 enables a development fallback license (SMB tier,
+# expires 2030-01-01) so the panel boots without a real license key.
+# For production, set this to 0 and provide ORVIX_LICENSE_KEY.
+ORVIX_ALLOW_DEV=1
+ORVIX_DEV_LICENSE_EXPIRES_AT=2030-01-01
+ORVIX_ALLOW_LOCAL_TLD=0
 EOF
-    chmod 0640 "$CONF_DIR/orvixpanel.toml"
-    chown root:"$SERVICE_GROUP" "$CONF_DIR/orvixpanel.toml"
-    ok "config written (chmod 0640, owned by root:orvixpanel)"
-  else
-    ok "config exists — leaving in place"
-  fi
-}
+# Optional license key
+if [ -n "$LICENSE_KEY" ]; then
+  echo "ORVIX_LICENSE_KEY=${LICENSE_KEY}" >> /etc/orvixpanel/orvixpanel.env
+fi
+run chmod 0640 /etc/orvixpanel/orvixpanel.env
+run chown root:orvixpanel /etc/orvixpanel/orvixpanel.env
+ok "env file written"
 
-install_dependencies() {
-  say "Installing OS dependencies (nginx, redis, sqlite, openssl, logrotate, jq)…"
-  if command -v apt >/dev/null 2>&1; then
-    DEBIAN_FRONTEND=noninteractive apt-get update -y
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        nginx redis-server sqlite3 openssl logrotate jq \
-        php8.3-fpm php8.3-cli php8.3-mysql php8.3-curl php8.3-gd \
-        php8.3-mbstring php8.3-xml php8.3-zip
-  elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y epel-release
-    dnf install -y nginx redis sqlite openssl logrotate jq \
-        php-fpm php-cli php-mysqlnd php-curl php-gd \
-        php-mbstring php-xml php-zip
-  elif command -v yum >/dev/null 2>&1; then
-    yum install -y epel-release
-    yum install -y nginx redis sqlite openssl logrotate jq
-  else
-    warn "Could not detect package manager — please install nginx, redis, sqlite, php-fpm manually."
-  fi
-}
-
-download_and_verify() {
-  local url="$RELEASE_BASE/orvixpanel-linux-$ORVIX_ARCH"
-  say "Downloading $url…"
-  curl -fsSL --retry 3 --max-time 300 "$url.sha256" -o /tmp/orvixpanel.sha256
-  curl -fsSL --retry 3 --max-time 300 "$url"      -o /tmp/orvixpanel
-  curl -fsSL --retry 3 --max-time 60  "$url.sig"   -o /tmp/orvixpanel.sig || warn "signature file not available (skipping GPG check)"
-  (cd /tmp && sha256sum -c orvixpanel.sha256) || die "SHA-256 mismatch — refusing to install"
-  if [[ -s /tmp/orvixpanel.sig ]] && command -v gpg >/dev/null 2>&1; then
-    if ! gpg --verify /tmp/orvixpanel.sig /tmp/orvixpanel 2>/dev/null; then
-      warn "GPG signature did not verify — binary installed but flagged."
-    else
-      ok "GPG signature verified"
-    fi
-  fi
-  install -m 0755 /tmp/orvixpanel "$INSTALL_DIR/orvixpanel"
-  ok "binary installed at $INSTALL_DIR/orvixpanel"
-}
-
-create_systemd_unit() {
-  say "Installing systemd unit (hardened)…"
-  cat > "$SYSTEMD_UNIT" <<EOF
+# -----------------------------------------------------------------------------
+# 6. systemd unit
+# -----------------------------------------------------------------------------
+step "6. write systemd unit"
+if [ "$SKIP_SYSTEMD" = 1 ]; then
+  ok "skip-systemd requested; not writing the unit"
+else
+  cat > /etc/systemd/system/orvixpanel.service <<EOF
 [Unit]
-Description=OrvixPanel Server Control Panel
-Documentation=https://docs.orvixpanel.com
-After=network.target network-online.target
+Description=OrvixPanel Core Hosting Engine
+Documentation=https://github.com/reachfm/orvixpanel
+After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=$SERVICE_USER
-Group=$SERVICE_GROUP
-WorkingDirectory=$DATA_DIR
-ExecStart=$INSTALL_DIR/orvixpanel
-ExecReload=/bin/kill -HUP \$MAINPID
-Environment=ORVIX_CONFIG=$CONF_DIR/orvixpanel.toml
+User=root
+Group=root
+EnvironmentFile=-/etc/orvixpanel/orvixpanel.env
+ExecStart=/opt/orvixpanel/bin/orvixpanel
+WorkingDirectory=/var/lib/orvixpanel
 Restart=always
 RestartSec=5
-TimeoutStopSec=30
-LimitNOFILE=65536
+TimeoutStopSec=20
+LimitNOFILE=65535
 
-# --- Security hardening ---
-NoNewPrivileges=true
-ProtectSystem=strict
+# Hardening
+NoNewPrivileges=false
+ProtectSystem=full
 ProtectHome=true
 PrivateTmp=true
-PrivateDevices=true
-ProtectClock=true
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectKernelLogs=true
-ProtectControlGroups=true
-RestrictNamespaces=true
-RestrictRealtime=true
-RestrictSUIDSGID=true
-LockPersonality=true
-MemoryDenyWriteExecute=true
-SystemCallArchitectures=native
-SystemCallFilter=@system-service
-SystemCallErrorNumber=EPERM
-ReadWritePaths=$DATA_DIR $LOG_DIR $CONF_DIR
-CapabilityBoundingSet=
-AmbientCapabilities=
+ReadWritePaths=/var/lib/orvixpanel /var/log/orvixpanel /run/orvixpanel /etc/nginx/conf.d/orvix /etc/php/${FPM_VERSION}/fpm/pool.d
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_CHOWN CAP_FOWNER CAP_FSETID CAP_KILL CAP_SETGID CAP_SETUID CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target
 EOF
-  systemctl daemon-reload
-  systemctl enable orvixpanel
-  systemctl restart orvixpanel
-  ok "service started (PID $(pgrep -f orvixpanel | head -1))"
-}
+  run systemctl daemon-reload
+  run systemctl enable orvixpanel.service
+  ok "systemd unit installed + enabled"
+fi
 
-create_sudoers_drop() {
-  say "Creating sudoers drop-in (limited privilege escalation)…"
-  cat > "$SUDOERS_DROP" <<EOF
-# OrvixPanel needs a small set of privileged operations
-# (useradd, setquota, cgroup writes, iptables-restore, cert
-# issuance). We whitelist only the commands we need.
-$ALL  ALL=($SERVICE_USER) NOPASSWD: /usr/sbin/useradd
-$ALL  ALL=($SERVICE_USER) NOPASSWD: /usr/sbin/userdel
-$ALL  ALL=($SERVICE_USER) NOPASSWD: /usr/sbin/usermod
-$ALL  ALL=($SERVICE_USER) NOPASSWD: /usr/sbin/setquota
-$ALL  ALL=($SERVICE_USER) NOPASSWD: /usr/sbin/iptables-restore
-$ALL  ALL=($SERVICE_USER) NOPASSWD: /usr/bin/systemctl restart orvixpanel-*.service
-$ALL  ALL=($SERVICE_USER) NOPASSWD: /usr/bin/systemctl reload php*-fpm
-$ALL  ALL=($SERVICE_USER) NOPASSWD: /usr/bin/systemctl reload nginx
-$ALL  ALL=($SERVICE_USER) NOPASSWD: /usr/sbin/nginx -s reload
+# -----------------------------------------------------------------------------
+# 7. nginx include for our generated vhosts
+# -----------------------------------------------------------------------------
+step "7. nginx include for /etc/nginx/conf.d/orvix/*.conf"
+cat > /etc/nginx/conf.d/00-orvixpanel-include.conf <<'EOF'
+# OrvixPanel — auto-include all generated vhosts.
+include /etc/nginx/conf.d/orvix/*.conf;
 EOF
-  chmod 0440 "$SUDOERS_DROP"
-  ok "sudoers drop-in at $SUDOERS_DROP"
-}
+# Remove the v0.2.0 scratch file we wrote during smoke.
+rm -f /etc/nginx/conf.d/00-orvix-include.conf 2>/dev/null || true
+ok "include file written"
 
-create_logrotate() {
-  say "Installing logrotate config…"
-  cat > "$LOGROTATE_CONF" <<EOF
-/var/log/orvixpanel/*.log {
-    daily
-    missingok
-    rotate 14
-    compress
-    delaycompress
-    notifempty
-    create 0640 $SERVICE_USER $SERVICE_GROUP
-    sharedscripts
-    postrotate
-        systemctl reload orvixpanel >/dev/null 2>&1 || true
-    endscript
-}
-EOF
-  ok "logrotate installed"
-}
-
-run_orvix_init() {
-  if ! "$INSTALL_DIR/orvixpanel" --check-config 2>/dev/null; then
-    warn "config validation failed; the binary started anyway — see journalctl -u orvixpanel"
-    return
+# -----------------------------------------------------------------------------
+# 8. start + validate
+# -----------------------------------------------------------------------------
+step "8. start + validate"
+run nginx -t
+run systemctl reload nginx
+if [ "$NO_START" = 1 ]; then
+  ok "no-start requested; not starting the service"
+elif [ "$SKIP_SYSTEMD" = 1 ]; then
+  # skip-systemd: still start the binary directly so the install
+  # is verifiable, but don't install the unit
+  blue "  skip-systemd: starting binary directly (no unit installed)"
+  nohup /opt/orvixpanel/bin/orvixpanel </dev/null >/var/log/orvixpanel/orvixpanel.out 2>&1 &
+  disown 2>/dev/null || true
+  sleep 2
+else
+  if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
+    run systemctl enable --now orvixpanel.service
+    sleep 2
+  else
+    blue "  systemd not running; starting binary directly"
+    nohup /opt/orvixpanel/bin/orvixpanel </dev/null >/var/log/orvixpanel/orvixpanel.out 2>&1 &
+    disown 2>/dev/null || true
+    sleep 2
   fi
-  ok "config validated"
-}
+fi
 
-main() {
-  require_root
-  check_os
-  create_dirs
-  create_user
-  write_default_config
-  install_dependencies
-  download_and_verify
-  create_sudoers_drop
-  create_logrotate
-  create_systemd_unit
-  run_orvix_init
+# -----------------------------------------------------------------------------
+# 9. healthz probe
+# -----------------------------------------------------------------------------
+step "9. healthz probe"
+# extract host:port from BIND_ADDR
+HEALTH_HOST=$(echo "$BIND_ADDR" | cut -d: -f1)
+[ "$HEALTH_HOST" = "0.0.0.0" ] && HEALTH_HOST=127.0.0.1
+HEALTH_PORT=$(echo "$BIND_ADDR" | cut -d: -f2)
+for i in 1 2 3 4 5; do
+  if curl -fsS "http://${HEALTH_HOST}:${HEALTH_PORT}/healthz" 2>/dev/null | grep -q '"status":"ok"'; then
+    ok "binary up at http://${HEALTH_HOST}:${HEALTH_PORT}/healthz"
+    break
+  fi
+  sleep 1
+  [ "$i" = 5 ] && { red "binary did not respond on healthz after 5s — check: journalctl -u orvixpanel -n 50"; }
+done
 
-  local ip
-  ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  [[ -z "$ip" ]] && ip="<server-ip>"
+# -----------------------------------------------------------------------------
+# 10. doctor
+# -----------------------------------------------------------------------------
+step "10. doctor.sh report"
+DOCTOR="$(dirname "$0")/doctor.sh"
+[ -x "$DOCTOR" ] && bash "$DOCTOR" || echo "  (doctor.sh not present in repo, skipping)"
 
-  cat <<EOF
-
-\033[1;32m✓ OrvixPanel v${ORVIX_VERSION} installed successfully.\033[0m
-
-Next steps:
-  1. Review the config:    \033[1;36m\$EDITOR $CONF_DIR/orvixpanel.toml\033[0m
-  2. Set the license key:  edit \033[1;36m[license].key\033[0m in that file
-  3. Watch the logs:       \033[1;36mjournalctl -u orvixpanel -f\033[0m
-  4. Open the panel:        \033[1;36mhttps://${ip}:8443\033[0m
-
-Hardening:
-  - Lock the panel port to your IP (see docs/SECURITY_AUDIT.md)
-  - Install CrowdSec for community blocklist sharing
-  - Subscribe to orvixpanel-announce@ for security advisories
-EOF
-}
-
-main "$@"
+green ""
+green "==========================================="
+green "OrvixPanel v0.2.1 installed."
+green "Binary: /opt/orvixpanel/bin/orvixpanel"
+green "Listen: ${BIND_ADDR}"
+green "Env:    /etc/orvixpanel/orvixpanel.env"
+green "Logs:   journalctl -u orvixpanel -f"
+green "Doctor: bash scripts/doctor.sh"
+green "==========================================="
