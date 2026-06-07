@@ -48,6 +48,18 @@ func main() {
 }
 
 func run() error {
+	// 0. Ensure /run/orvixpanel exists. /run is a tmpfs and is
+	// cleared on reboot / WSL reinit / systemd-managed service
+	// restarts; install.sh's one-time mkdir is not durable. The
+	// binary is the source of truth for runtime state, so we
+	// self-heal on every start. Idempotent, best-effort: a failure
+	// here only means the doctor check will WARN — runtime itself
+	// is fine because no live code currently writes to this path
+	// (intended for future pidfile / Unix socket use).
+	if err := ensureRuntimeDir("/run/orvixpanel", 0o755, "orvixpanel"); err != nil {
+		log.Warn().Err(err).Msg("ensure /run/orvixpanel failed; continuing")
+	}
+
 	// 1. Configuration.
 	cfg, err := config.Load()
 	if err != nil {
