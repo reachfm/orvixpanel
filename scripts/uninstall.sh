@@ -97,7 +97,7 @@ fi
 # Remove binary + etc
 # -----------------------------------------------------------------------------
 step "2. remove binary + etc/orvixpanel"
-rm -f /opt/orvixpanel/bin/orvixpanel
+rm -rf /opt/orvixpanel
 rm -rf /etc/orvixpanel
 ok "removed"
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OrvixPanel v0.2.1 doctor — health check.
+# OrvixPanel v0.2.2 doctor — health check.
 #
 # Checks (each is OK / WARN / FAIL):
 #   - binary installed
@@ -13,7 +13,30 @@
 #   - /healthz endpoint reachable
 #
 # Exit code: 0 if all checks OK, 1 if any FAIL, 2 if only WARNs.
+#
+# Flags:
+#   --json   output the report as a single JSON document on stdout
+#            (also sets process exit code based on the health state)
+#   --help   show usage
 set -uo pipefail
+
+# ----------------------------------------------------------------------------
+# Flag parsing
+# ----------------------------------------------------------------------------
+JSON_MODE=0
+for arg in "$@"; do
+  case "$arg" in
+    --json) JSON_MODE=1 ;;
+    --help|-h)
+      sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *)
+      echo "unknown flag: $arg" >&2
+      exit 64
+      ;;
+  esac
+done
 
 green() { printf '\033[32m%s\033[0m' "✓"; }
 yellow(){ printf '\033[33m%s\033[0m' "!"; }
@@ -21,17 +44,47 @@ red()   { printf '\033[31m%s\033[0m' "✗"; }
 bold()  { printf '\033[1m%s\033[0m' "$*"; }
 rst()   { printf '\033[0m'; }
 
+# State accumulators.
 state_ok=0
 state_warn=0
 state_fail=0
 
+# In JSON mode we collect all records and emit a single document at the end.
+# In human mode we print as we go.
+JSON_RECORDS=""
+add_json_record() {
+  local status="$1" label="$2" detail="$3"
+  # JSON-escape the fields.
+  local esc_status esc_label esc_detail
+  esc_status=$(printf '%s' "$status"  | sed 's/"/\\"/g')
+  esc_label=$(printf '%s'   "$label"   | sed 's/"/\\"/g')
+  esc_detail=$(printf '%s'  "$detail"  | sed 's/"/\\"/g')
+  local entry
+  entry=$(printf '{"status":"%s","check":"%s","detail":"%s"}' \
+    "$esc_status" "$esc_label" "$esc_detail")
+  if [ -z "$JSON_RECORDS" ]; then
+    JSON_RECORDS="$entry"
+  else
+    JSON_RECORDS="${JSON_RECORDS},${entry}"
+  fi
+}
+
 record() {
   local status="$1" label="$2" detail="${3:-}"
   case "$status" in
-    OK)   printf ' %s %-40s %s\n' "$(green ok)" "$label" "${detail}"; state_ok=$((state_ok+1)) ;;
-    WARN) printf ' %s %-40s %s\n' "$(yellow warn)" "$label" "${detail}"; state_warn=$((state_warn+1)) ;;
-    FAIL) printf ' %s %-40s %s\n' "$(red fail)" "$label" "${detail}"; state_fail=$((state_fail+1)) ;;
+    OK)   state_ok=$((state_ok+1)) ;;
+    WARN) state_warn=$((state_warn+1)) ;;
+    FAIL) state_fail=$((state_fail+1)) ;;
   esac
+  if [ "$JSON_MODE" -eq 1 ]; then
+    add_json_record "$status" "$label" "$detail"
+  else
+    case "$status" in
+      OK)   printf ' %s %-40s %s\n' "$(green ok)"   "$label" "$detail" ;;
+      WARN) printf ' %s %-40s %s\n' "$(yellow warn)" "$label" "$detail" ;;
+      FAIL) printf ' %s %-40s %s\n' "$(red fail)"   "$label" "$detail" ;;
+    esac
+  fi
 }
 
 # Detect php-fpm version (best effort)
@@ -57,12 +110,21 @@ port_in_use() {
 }
 
 # -----------------------------------------------------------------------------
-bold "OrvixPanel doctor"; rst
-echo "  host: $(hostname 2>/dev/null || echo unknown)"
-echo "  date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-echo
+# Header
+# -----------------------------------------------------------------------------
+HOSTNAME_FQDN=$(hostname 2>/dev/null || echo unknown)
+DATE_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
+if [ "$JSON_MODE" -eq 0 ]; then
+  bold "OrvixPanel doctor"; rst
+  echo "  host: ${HOSTNAME_FQDN}"
+  echo "  date: ${DATE_ISO}"
+  echo
+fi
+
+# -----------------------------------------------------------------------------
 # 1. binary
+# -----------------------------------------------------------------------------
 if [ -x /opt/orvixpanel/bin/orvixpanel ]; then
   sha=$(sha256sum /opt/orvixpanel/bin/orvixpanel | awk '{print $1}' | cut -c1-12)
   size=$(stat -c%s /opt/orvixpanel/bin/orvixpanel 2>/dev/null || stat -f%z /opt/orvixpanel/bin/orvixpanel)
@@ -71,7 +133,9 @@ else
   record FAIL "binary" "/opt/orvixpanel/bin/orvixpanel not found"
 fi
 
+# -----------------------------------------------------------------------------
 # 2. systemd unit
+# -----------------------------------------------------------------------------
 if [ -f /etc/systemd/system/orvixpanel.service ]; then
   if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
     active=$(systemctl is-active orvixpanel 2>&1 || echo unknown)
@@ -88,16 +152,20 @@ else
   record WARN "systemd unit" "/etc/systemd/system/orvixpanel.service not present"
 fi
 
+# -----------------------------------------------------------------------------
 # 3. env file
+# -----------------------------------------------------------------------------
 if [ -r /etc/orvixpanel/orvixpanel.env ]; then
   bind=$(grep -E '^ORVIX_SERVER_BIND_ADDR=' /etc/orvixpanel/orvixpanel.env | head -1 | cut -d= -f2)
   fpmv=$(grep -E '^ORVIX_FPM_VERSION=' /etc/orvixpanel/orvixpanel.env | head -1 | cut -d= -f2)
-  record OK "env file" "bind=$bind fpm=$fpmv"
+  record OK "env file" "bind=${bind:-unset} fpm=${fpmv:-unset}"
 else
   record FAIL "env file" "/etc/orvixpanel/orvixpanel.env missing"
 fi
 
+# -----------------------------------------------------------------------------
 # 4. data dirs
+# -----------------------------------------------------------------------------
 for d in /var/lib/orvixpanel /var/log/orvixpanel /run/orvixpanel; do
   if [ -d "$d" ]; then
     perms=$(stat -c%a "$d" 2>/dev/null || stat -f%Lp "$d")
@@ -108,7 +176,9 @@ for d in /var/lib/orvixpanel /var/log/orvixpanel /run/orvixpanel; do
   fi
 done
 
+# -----------------------------------------------------------------------------
 # 5. nginx include
+# -----------------------------------------------------------------------------
 if [ -f /etc/nginx/conf.d/00-orvixpanel-include.conf ]; then
   record OK "nginx include" "/etc/nginx/conf.d/00-orvixpanel-include.conf"
 else
@@ -121,7 +191,9 @@ else
   record WARN "vhost dir" "/etc/nginx/conf.d/orvix missing (no accounts yet)"
 fi
 
+# -----------------------------------------------------------------------------
 # 6. nginx
+# -----------------------------------------------------------------------------
 if command -v nginx >/dev/null 2>&1; then
   if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
     if systemctl is-active nginx >/dev/null 2>&1; then
@@ -132,7 +204,6 @@ if command -v nginx >/dev/null 2>&1; then
   else
     record WARN "nginx" "installed; systemd not running"
   fi
-  # nginx -t (may fail if our include is missing, that's WARN not FAIL here)
   if nginx -t >/dev/null 2>&1; then
     record OK "nginx -t" "config valid"
   else
@@ -142,7 +213,9 @@ else
   record FAIL "nginx" "not installed"
 fi
 
+# -----------------------------------------------------------------------------
 # 7. php-fpm
+# -----------------------------------------------------------------------------
 FPM_VER=$(detect_fpm)
 FPM_BIN="${FPM_VER:+php-fpm}${FPM_VER:+$FPM_VER}"
 if [ -n "$FPM_VER" ] && command -v "$FPM_BIN" >/dev/null 2>&1; then
@@ -159,7 +232,9 @@ else
   record FAIL "php-fpm" "no php*-fpm binary found"
 fi
 
+# -----------------------------------------------------------------------------
 # 8. ports
+# -----------------------------------------------------------------------------
 for p in 80 443 8443; do
   if port_in_use "$p"; then
     record WARN "port $p" "in use by another process"
@@ -168,30 +243,50 @@ for p in 80 443 8443; do
   fi
 done
 
+# -----------------------------------------------------------------------------
 # 9. healthz
+# -----------------------------------------------------------------------------
 bind=$(grep -E '^ORVIX_SERVER_BIND_ADDR=' /etc/orvixpanel/orvixpanel.env 2>/dev/null | head -1 | cut -d= -f2)
 if [ -z "$bind" ]; then bind="0.0.0.0:8443"; fi
 host=$(echo "$bind" | cut -d: -f1)
 [ "$host" = "0.0.0.0" ] && host=127.0.0.1
 port=$(echo "$bind" | cut -d: -f2)
-if curl -fsS "http://${host}:${port}/healthz" 2>/dev/null | grep -q '"status":"ok"'; then
+if curl -fsS --max-time 3 "http://${host}:${port}/healthz" 2>/dev/null | grep -q '"status":"ok"'; then
   record OK "healthz" "http://${host}:${port}/healthz"
 else
   record FAIL "healthz" "no response at http://${host}:${port}/healthz"
 fi
 
 # -----------------------------------------------------------------------------
-echo
-bold "Summary"; rst
-printf "  %d OK, %d WARN, %d FAIL\n" "$state_ok" "$state_warn" "$state_fail"
-
+# Final report
+# -----------------------------------------------------------------------------
 if [ "$state_fail" -gt 0 ]; then
-  red "  OrvixPanel is NOT healthy."; rst
-  exit 1
+  state="FAIL"
+elif [ "$state_warn" -gt 0 ]; then
+  state="WARN"
+else
+  state="OK"
 fi
-if [ "$state_warn" -gt 0 ]; then
-  yellow "  OrvixPanel is healthy with warnings."; rst
-  exit 2
+
+if [ "$JSON_MODE" -eq 1 ]; then
+  # Single JSON document, machine-friendly.
+  printf '{"host":"%s","date":"%s","state":"%s","ok":%d,"warn":%d,"fail":%d,"checks":[%s]}\n' \
+    "$HOSTNAME_FQDN" "$DATE_ISO" "$state" \
+    "$state_ok" "$state_warn" "$state_fail" \
+    "$JSON_RECORDS"
+else
+  echo
+  bold "Summary"; rst
+  printf "  %d OK, %d WARN, %d FAIL\n" "$state_ok" "$state_warn" "$state_fail"
+  case "$state" in
+    OK)   green "  OrvixPanel is fully healthy."; rst ;;
+    WARN) yellow "  OrvixPanel is healthy with warnings."; rst ;;
+    FAIL) red    "  OrvixPanel is NOT healthy."; rst ;;
+  esac
 fi
-green "  OrvixPanel is fully healthy."; rst
-exit 0
+
+case "$state" in
+  OK)   exit 0 ;;
+  WARN) exit 2 ;;
+  FAIL) exit 1 ;;
+esac

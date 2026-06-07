@@ -89,6 +89,42 @@ need_root
 step "preflight"
 command -v apt-get >/dev/null 2>&1 || die "apt-get not found — installer targets Debian/Ubuntu"
 [ -r /etc/os-release ] && . /etc/os-release && echo "  OS: $PRETTY_NAME"
+
+# Port-collision precheck. v0.2.2: the binary used to fail with a
+# cryptic "address already in use" when something else (Docker on
+# WSL, another panel, a leftover dev server) was already bound to
+# the chosen port. We refuse up front with a clear message.
+BIND_PORT=$(echo "$BIND_ADDR" | cut -d: -f2)
+if [ -n "$BIND_PORT" ] && [ "$BIND_PORT" != "0" ]; then
+  port_busy=""
+  if command -v ss >/dev/null 2>&1; then
+    if ss -tln "( sport = :$BIND_PORT )" 2>/dev/null | grep -q ":$BIND_PORT\b"; then
+      port_busy="ss"
+    fi
+  elif command -v lsof >/dev/null 2>&1; then
+    if lsof -iTCP:"$BIND_PORT" -sTCP:LISTEN 2>/dev/null | tail -n +2 | grep -q .; then
+      port_busy="lsof"
+    fi
+  elif command -v netstat >/dev/null 2>&1; then
+    if netstat -tln 2>/dev/null | grep -q ":$BIND_PORT\b"; then
+      port_busy="netstat"
+    fi
+  fi
+  if [ -n "$port_busy" ]; then
+    # Find the conflicting process for a more actionable error message.
+    conflict_owner=$(ss -tlnp "( sport = :$BIND_PORT )" 2>/dev/null | grep ":$BIND_PORT\b" | head -1 | sed -E 's/.*users:\(\("([^"]+)".*/\1/')
+    if [ -z "$conflict_owner" ] && command -v lsof >/dev/null 2>&1; then
+      conflict_owner=$(lsof -iTCP:"$BIND_PORT" -sTCP:LISTEN 2>/dev/null | tail -n +2 | awk '{print $1}' | head -1)
+    fi
+    if [ -n "$conflict_owner" ]; then
+      die "bind port $BIND_PORT is already in use by '$conflict_owner' (detected via $port_busy). Free it (e.g. 'systemctl stop $conflict_owner' or kill the pid) or re-run with a different port: --bind 0.0.0.0:<other>"
+    else
+      die "bind port $BIND_PORT is already in use (detected via $port_busy). Free it, or re-run with --bind 0.0.0.0:<other>"
+    fi
+  fi
+  echo "  bind port $BIND_PORT: free"
+fi
+
 ok "preflight passed"
 
 # -----------------------------------------------------------------------------
@@ -213,17 +249,24 @@ Group=root
 EnvironmentFile=-/etc/orvixpanel/orvixpanel.env
 ExecStart=/opt/orvixpanel/bin/orvixpanel
 WorkingDirectory=/var/lib/orvixpanel
+RuntimeDirectory=orvixpanel
+RuntimeDirectoryMode=0755
 Restart=always
 RestartSec=5
 TimeoutStopSec=20
 LimitNOFILE=65535
 
 # Hardening
+# Note: ProtectSystem=yes (not =full) keeps /etc writable. groupadd /
+# useradd need to write /etc/{passwd,shadow,group,gshadow} and the
+# panel needs to write /etc/nginx/conf.d/orvix/ (vhosts) +
+# /etc/php/<ver>/fpm/pool.d/ (fpm pools) + /etc/orvixpanel/orvixpanel.env.
+# =full would block all of those; =yes protects /usr, /boot, /efi only.
 NoNewPrivileges=false
-ProtectSystem=full
+ProtectSystem=yes
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/lib/orvixpanel /var/log/orvixpanel /run/orvixpanel /etc/nginx/conf.d/orvix /etc/php/${FPM_VERSION}/fpm/pool.d
+ReadWritePaths=/var/lib/orvixpanel /var/log/orvixpanel /run/orvixpanel /etc/orvixpanel /etc/nginx/conf.d/orvix /etc/php/${FPM_VERSION}/fpm/pool.d
 CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_CHOWN CAP_FOWNER CAP_FSETID CAP_KILL CAP_SETGID CAP_SETUID CAP_NET_BIND_SERVICE
 
 [Install]
