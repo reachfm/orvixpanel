@@ -1,14 +1,15 @@
-// Package api wires the Fiber v2 HTTP server. v1.0 ships:
-//   - JWT auth (login/refresh/logout) + 2FA schema
-//   - RBAC + license gating middleware
+// Package api wires the Fiber v2 HTTP server. v0.3.0 ships:
+//   - JWT auth (login/refresh/logout) + API key auth
+//   - RBAC (built-in + custom) + license gating middleware
 //   - Token-bucket rate limiter
-//   - Audit log with hash chain
-//   - Account + tenant CRUD (basic — Phase 2 expands to system user
-//     provisioning, nginx vhost generation, etc.)
+//   - Audit log with hash chain + search + CEF export
+//   - Encrypted secrets vault (AES-256-GCM)
+//   - Tenant quotas
+//   - Encrypted license persistence + read-only mode
 //
 // Routes that the spec calls for in later phases (DNS, mail, SSL,
 // firewall, files, backups, WAF, Guardian, reseller, provisioning)
-// return 501 Not Implemented in v1.0 — see router.go.
+// return 501 Not Implemented — see stubs.go.
 package api
 
 import (
@@ -22,16 +23,27 @@ import (
 	"github.com/orvixpanel/orvixpanel/internal/audit"
 	"github.com/orvixpanel/orvixpanel/internal/auth"
 	"github.com/orvixpanel/orvixpanel/internal/config"
+	"github.com/orvixpanel/orvixpanel/internal/hosting"
+	"github.com/orvixpanel/orvixpanel/internal/license"
+	"github.com/orvixpanel/orvixpanel/internal/quota"
+	"github.com/orvixpanel/orvixpanel/internal/rbac"
+	"github.com/orvixpanel/orvixpanel/internal/vault"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
 
 // Deps is the constructor input.
 type Deps struct {
-	Config *config.Config
-	DB     *gorm.DB
-	Auth   *auth.Service
-	Audit  *audit.Auditor
+	Config       *config.Config
+	DB           *gorm.DB
+	Auth         *auth.Service
+	Audit        *audit.Auditor
+	LicenseStore *license.Store
+	RBAC         *rbac.Service
+	Vault        *vault.Vault
+	Quota        *quota.Service
+	APIKeys      *auth.KeyService
+	Hosting      *hosting.Service
 }
 
 // Server is the *fiber.App wrapper.
@@ -83,8 +95,14 @@ func NewServer(d Deps) *Server {
 	authGrp := app.Group("/auth", middleware.AuthMiddleware(d.Auth))
 	authGrp.Post("/logout", v1.LogoutHandler(d.Auth))
 
-	// Authenticated v1 API.
+	// Authenticated v1 API. Middleware order:
+	//   1. ReadOnlyEnforcer — license-expired panels reject writes
+	//   2. APIKeyMiddleware — try API-key auth first
+	//   3. AuthMiddleware   — fall back to JWT
+	//   4. TenantMiddleware — license + tenant scope check
 	v1grp := app.Group("/api/v1",
+		middleware.ReadOnlyEnforcer(),
+		middleware.APIKeyMiddleware(d.APIKeys),
 		middleware.AuthMiddleware(d.Auth),
 		middleware.TenantMiddleware(),
 	)

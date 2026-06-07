@@ -3,6 +3,7 @@ package middleware
 import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/orvixpanel/orvixpanel/internal/auth"
+	"github.com/orvixpanel/orvixpanel/internal/rbac"
 )
 
 // Permission is the (resource, action) tuple the RBAC layer checks.
@@ -114,15 +115,42 @@ func match(pattern, s string) bool {
 
 // RequirePermission returns a middleware that 403s if the caller's
 // role doesn't allow (resource, action).
+//
+// v0.3.0: when the user's role is not in the built-in map, fall
+// through to the custom-role DB lookup. The custom role must live
+// in the user's tenant. The check is cached in-process via
+// rbac.RoleAssignable — pass nil to disable caching.
 func RequirePermission(resource, action string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		claims, ok := c.Locals(LocalClaims).(*auth.Claims)
 		if !ok {
 			return fiber.ErrUnauthorized
 		}
-		if !HasPermission(claims.Role, resource, action) {
+		// Built-in: use the in-memory map.
+		if HasPermission(claims.Role, resource, action) {
+			return c.Next()
+		}
+		// Custom role: look it up in the DB.
+		svc := rbacServiceFromCtx(c)
+		if svc == nil {
 			return fiber.NewError(fiber.StatusForbidden, "permission_denied")
 		}
-		return c.Next()
+		if rbac.HasPermissionFor(c.Context(), svc, claims.TenantID, claims.Role, resource, action) {
+			return c.Next()
+		}
+		return fiber.NewError(fiber.StatusForbidden, "permission_denied")
 	}
+}
+
+// rbacServiceFromCtx pulls the *rbac.Service injected by the api
+// package's depsMiddleware. We import the rbac package lazily to
+// avoid a hard import cycle (rbac → db only; middleware → rbac
+// already exists from the existing tenant middleware).
+func rbacServiceFromCtx(c *fiber.Ctx) *rbac.Service {
+	v := c.Locals("rbac")
+	if v == nil {
+		return nil
+	}
+	s, _ := v.(*rbac.Service)
+	return s
 }

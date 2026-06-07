@@ -1,8 +1,8 @@
-// Package models holds the GORM data models for v1.0.
+// Package models holds the GORM data models.
 //
-// Scope: Phase 1 (auth) + minimal account/tenant/license. Phases
-// 2-8 (domains, DNS, mail, SSL, hosting, firewall, backups, etc.)
-// are deferred to v1.1 — see RELEASE_NOTES.md.
+// v0.1.0 scope: Phase 1 (auth) + minimal account/tenant/license.
+// v0.3.0 scope: + API keys, custom RBAC roles, secrets vault, tenant
+// quotas, encrypted license store. See ENTERPRISE_PLAN.md.
 package models
 
 import (
@@ -111,4 +111,100 @@ type AuditEntry struct {
 	Detail       string    `gorm:"type:text" json:"detail,omitempty"`
 	PrevHash     string    `gorm:"type:varchar(64)" json:"prev_hash"`
 	Hash         string    `gorm:"type:varchar(64);uniqueIndex" json:"hash"`
+}
+
+// -----------------------------------------------------------------------------
+// v0.3.0 Enterprise Edition — additional models
+// -----------------------------------------------------------------------------
+
+// APIKey — long-lived credentials for automation. The full key
+// (orx_live_<prefix>_<secret>) is never stored; only its SHA-256
+// hash. The 8-char prefix is stored plain for operator lookup.
+type APIKey struct {
+	Base
+	TenantID    string     `gorm:"index;not null" json:"tenant_id"`
+	CreatedByID string     `gorm:"index;not null" json:"created_by_id"`
+	Name        string     `gorm:"not null" json:"name"`
+	KeyHash     string     `gorm:"uniqueIndex;not null" json:"-"`
+	Prefix      string     `gorm:"index;not null;type:varchar(16)" json:"prefix"`
+	Role        string     `gorm:"not null" json:"role"`
+	Scopes      string     `gorm:"type:text" json:"scopes"` // JSON array of "resource.action"
+	ExpiresAt   *time.Time `gorm:"index" json:"expires_at,omitempty"`
+	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
+	LastUsedIP  string     `json:"last_used_ip,omitempty"`
+	RevokedAt   *time.Time `gorm:"index" json:"revoked_at,omitempty"`
+	RevokeReason string    `json:"revoke_reason,omitempty"`
+}
+
+// IsActive reports whether the key is usable right now.
+func (k *APIKey) IsActive() bool {
+	if k.RevokedAt != nil {
+		return false
+	}
+	if k.ExpiresAt != nil && k.ExpiresAt.Before(time.Now()) {
+		return false
+	}
+	return true
+}
+
+// CustomRole — admin-defined RBAC role. Built-in 12 roles are NOT
+// stored here; only admin-created custom roles are. Built-in role
+// lookups go through the auth.RolePermissions map.
+type CustomRole struct {
+	Base
+	TenantID   string `gorm:"index;not null" json:"tenant_id"`
+	Name       string `gorm:"uniqueIndex:idx_custom_role_tenant_name;not null" json:"name"`
+	Permissions string `gorm:"type:text" json:"-"` // JSON: [{"resource":"domain","actions":["read","create"]}, ...]
+	IsBuiltin  bool   `gorm:"default:false" json:"is_builtin"`
+	Description string `gorm:"type:text" json:"description,omitempty"`
+}
+
+// Secret — encrypted secret in the per-tenant vault. Ciphertext
+// and nonce are stored as base64 strings for easy inspection during
+// audit. Plaintext is never stored, never logged.
+type Secret struct {
+	Base
+	TenantID    string     `gorm:"index:idx_secret_tenant_name,unique;not null" json:"tenant_id"`
+	Name        string     `gorm:"index:idx_secret_tenant_name,unique;not null" json:"name"`
+	Ciphertext  string     `gorm:"type:text;not null" json:"-"` // base64(nonce || aesgcm(payload))
+	Version     int        `gorm:"default:1" json:"version"`
+	CreatedByID string     `gorm:"index;not null" json:"created_by_id"`
+	RotatedAt   *time.Time `json:"rotated_at,omitempty"`
+	RotatedByID *string    `json:"rotated_by_id,omitempty"`
+}
+
+// TenantQuota — resource bounds per tenant. Enforced on every
+// resource create; checked at handler level.
+//
+// v0.3.0: no `gorm:"default:..."` tags on the numeric fields —
+// GORM's default-tag behavior treats the zero value as "use
+// default", which would silently turn a `MaxAccounts: 0` quota
+// (legitimate "deny all" intent) into the schema default. The
+// quota service fills values explicitly via tierDefaults.
+type TenantQuota struct {
+	Base
+	TenantID       string `gorm:"uniqueIndex;not null" json:"tenant_id"`
+	MaxAccounts    int    `json:"max_accounts"`
+	MaxUsers       int    `json:"max_users"`
+	MaxDomains     int    `json:"max_domains"`
+	MaxStorageMB   int64  `json:"max_storage_mb"`
+	MaxBandwidthGB int64  `json:"max_bandwidth_gb"`
+	MaxAPIKeys     int    `json:"max_api_keys"`
+	MaxCustomRoles int    `json:"max_custom_roles"`
+	MaxSecrets     int    `json:"max_secrets"`
+}
+
+// LicenseStore — single-row table holding the encrypted license
+// blob. ORVIX_LICENSE_PUBKEY ECDSA verification is performed on
+// decrypt; in dev mode (ORVIX_ALLOW_DEV=1) parsing only.
+type LicenseStore struct {
+	Base
+	// ID is always "singleton" — we use a unique row marker.
+	KeyID         string    `gorm:"uniqueIndex;not null;default:'singleton'" json:"key_id"`
+	Ciphertext    string    `gorm:"type:text;not null" json:"-"` // base64(nonce || aesgcm(json_payload))
+	ParsedTier    string    `gorm:"index" json:"parsed_tier"`
+	ParsedExpiresAt int64   `json:"parsed_expires_at"`
+	ParsedIssuedAt  int64   `json:"parsed_issued_at"`
+	UploadedByID  string    `gorm:"index" json:"uploaded_by_id"`
+	UploadedAt    time.Time `gorm:"not null" json:"uploaded_at"`
 }

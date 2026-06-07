@@ -8,3 +8,8 @@ node_modules/
 logs/
 tmp/
 *.log
+smoke-*.txt
+smoke-*.pid
+check-license.sh
+smoke-quick.sh
+

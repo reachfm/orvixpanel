@@ -1,7 +1,15 @@
-// Command orvixpanel is the v1.0 entry point. v1.0 ships the Phase 1
-// (Foundation) scope only: auth + license + audit + minimal
-// account/tenant CRUD. See RELEASE_NOTES.md and audit.md for the
-// explicit v1.1 backlog.
+// Command orvixpanel is the v0.3.0 entry point.
+//
+// v0.3.0 Enterprise Edition:
+//   - Phase 1 Foundation: auth + license + audit + tenant + account
+//   - + Encrypted secrets vault (AES-256-GCM)
+//   - + Custom RBAC roles
+//   - + API key auth (long-lived automation credentials)
+//   - + Audit log search + CEF export
+//   - + Tenant-level quotas
+//   - + Encrypted license persistence + read-only mode on expiry
+//
+// See ENTERPRISE_PLAN.md and RELEASE_NOTES.md.
 package main
 
 import (
@@ -19,7 +27,11 @@ import (
 	"github.com/orvixpanel/orvixpanel/internal/auth"
 	"github.com/orvixpanel/orvixpanel/internal/config"
 	"github.com/orvixpanel/orvixpanel/internal/db"
+	"github.com/orvixpanel/orvixpanel/internal/hosting"
 	"github.com/orvixpanel/orvixpanel/internal/license"
+	"github.com/orvixpanel/orvixpanel/internal/quota"
+	"github.com/orvixpanel/orvixpanel/internal/rbac"
+	"github.com/orvixpanel/orvixpanel/internal/vault"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -56,12 +68,28 @@ func run() error {
 		if os.Getenv("ORVIX_ALLOW_DEV") != "1" {
 			return fmt.Errorf("license: %w", err)
 		}
+		// Dev fallback uses the same expiry override as the
+		// defaultPayload function. We re-implement it here because
+		// we're not going through license.Parse.
+		expiresAt := int64(1735689600) // 2025-01-01 UTC sentinel
+		issuedAt := int64(1704067200)  // 2024-01-01 UTC
+		graceDays := 7
+		if v := os.Getenv("ORVIX_DEV_LICENSE_EXPIRES_AT"); v != "" {
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				expiresAt = t.UTC().Unix()
+			} else if t, err := time.Parse("2006-01-02", v); err == nil {
+				expiresAt = t.UTC().Unix()
+			}
+		}
 		lic = &license.License{
 			Tier:       license.TierSMB,
 			MaxServers: 1,
+			ExpiresAt:  expiresAt,
+			IssuedAt:   issuedAt,
+			GraceDays:  graceDays,
 			Features:   license.TierFeatures[license.TierSMB],
 		}
-		log.Warn().Msg("using dev fallback license (SMB)")
+		log.Warn().Time("expires_at", time.Unix(expiresAt, 0)).Msg("using dev fallback license (SMB)")
 	}
 	license.SetGlobal(lic)
 	log.Info().Str("tier", lic.Tier).Int("features", len(lic.Features)).Msg("license loaded")
@@ -94,12 +122,58 @@ func run() error {
 		log.Warn().Err(err).Msg("bootstrap admin: skipped or failed")
 	}
 
+	// 5c. v0.3.0 services.
+	masterKey, err := license.MasterKeySource()
+	if err != nil {
+		log.Warn().Err(err).Msg("master key not configured; license store + vault will fail until ORVIX_MASTER_KEY is set")
+	}
+	var licenseStore *license.Store
+	var vaultSvc *vault.Vault
+	if masterKey != nil {
+		licenseStore, err = license.NewStore(database, masterKey)
+		if err != nil {
+			return fmt.Errorf("license store: %w", err)
+		}
+		vaultSvc, err = vault.New(database, masterKey)
+		if err != nil {
+			return fmt.Errorf("vault: %w", err)
+		}
+		// Try to load a persisted license and apply it.
+		if persisted, perr := licenseStore.Load(context.Background()); perr == nil {
+			license.SetGlobal(persisted)
+			log.Info().Str("tier", persisted.Tier).Msg("loaded persisted license")
+		} else {
+			log.Info().Msg("no persisted license; using in-memory dev key")
+		}
+	}
+
+	rbacSvc := rbac.New(database)
+	quotaSvc := quota.New(database)
+	apiKeySvc := auth.NewKeyService(database)
+
+	// 5d. v0.2.0 Core Hosting Engine service. On non-Linux this
+	// returns a stub that 501s every hosting call; on Linux it
+	// does real useradd / nginx / php-fpm work.
+	hostingSvc := hosting.NewService()
+	if err := hostingSvc.Paths.EnsureDirs(); err != nil {
+		// EnsureDirs can fail on a fresh install (perms on /var).
+		// Log and continue — the first ProvisionAccount call will
+		// surface the real error.
+		log.Warn().Err(err).Msg("hosting ensure-dirs: some paths will fail until /var/lib/orvixpanel is writable")
+	}
+
 	// 6. HTTP server.
 	server := api.NewServer(api.Deps{
-		Config: cfg,
-		DB:     database,
-		Auth:   authSvc,
-		Audit:  auditor,
+		Config:       cfg,
+		DB:           database,
+		Auth:         authSvc,
+		Audit:        auditor,
+		LicenseStore: licenseStore,
+		RBAC:         rbacSvc,
+		Vault:        vaultSvc,
+		Quota:        quotaSvc,
+		APIKeys:      apiKeySvc,
+		Hosting:      hostingSvc,
 	})
 
 	httpErr := make(chan error, 1)

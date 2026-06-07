@@ -54,7 +54,10 @@ func Open(cfg config.DBConfig) (*gorm.DB, error) {
 	return db, nil
 }
 
-// Migrate runs AutoMigrate for the v1.0 schema.
+// Migrate runs AutoMigrate for the schema.
+//
+// v0.1.0: 5 tables (tenant, user, user_session, account, audit_entry)
+// v0.3.0: +5 tables (api_key, custom_role, secret, tenant_quota, license_store)
 func Migrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(
 		&models.Tenant{},
@@ -62,6 +65,12 @@ func Migrate(db *gorm.DB) error {
 		&models.UserSession{},
 		&models.Account{},
 		&models.AuditEntry{},
+		// v0.3.0 Enterprise Edition
+		&models.APIKey{},
+		&models.CustomRole{},
+		&models.Secret{},
+		&models.TenantQuota{},
+		&models.LicenseStore{},
 	); err != nil {
 		return fmt.Errorf("automigrate: %w", err)
 	}
