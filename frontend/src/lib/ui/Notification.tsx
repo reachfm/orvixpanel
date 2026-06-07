@@ -23,7 +23,7 @@ interface NotificationState {
   clear: () => void;
 }
 
-export const useNotificationStore = create<NotificationState>((set, get) => ({
+export const useNotificationStore = create<NotificationState>((set) => ({
   notifications: [],
   add: (notification) => {
     const id = `notification-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -154,6 +154,7 @@ function NotificationToast({
         <button
           onClick={handleDismiss}
           className="text-ink-3 hover:text-ink-2"
+          aria-label="Close"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
             <line x1="18" y1="6" x2="6" y2="18" />

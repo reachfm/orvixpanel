@@ -54,7 +54,7 @@ export function AppLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const accessToken = useAuthStore((s) => s.accessToken);
   const user = useAuthStore((s) => s.user);
-  const clearAuth = useAuthStore((s) => s.clearAuth);
+  const clear = useAuthStore((s) => s.clear);
   const notify = useNotification();
 
   const hasWarnedRef = useRef(false);
@@ -73,7 +73,7 @@ export function AppLayout() {
 
       // Token is expired or about to expire
       if (timeUntilExpiry <= 0) {
-        clearAuth();
+        clear();
         notify("warning", "Session Expired", "Your session has expired. Please log in again.");
         void import("@/router").then((m) => m.router.navigate({ to: "/login" }));
         return;
@@ -93,7 +93,7 @@ export function AppLayout() {
     // Set up interval for periodic checks
     const intervalId = setInterval(checkSession, SESSION_CHECK_INTERVAL);
     return () => clearInterval(intervalId);
-  }, [accessToken, clearAuth, notify]);
+  }, [accessToken, clear, notify]);
 
   // Auth guard: redirect to login if not authenticated.
   useEffect(() => {

@@ -18,7 +18,7 @@ interface HealthMetric {
   endpoint: string;
   description: string;
   value?: string;
-  details?: Record<string, unknown>;
+  details?: unknown;
 }
 
 export function SystemHealthPage() {
@@ -48,7 +48,7 @@ export function SystemHealthPage() {
       endpoint: "GET /readyz",
       description: "Database connectivity and migrations",
       value: rz.isLoading ? "checking..." : rz.data?.status ?? "down",
-      details: rz.data,
+      details: rz.data as unknown,
     });
 
     // License
@@ -150,7 +150,7 @@ export function SystemHealthPage() {
                 <p className="mt-1 font-mono text-xs text-ink-2">{metric.endpoint}</p>
               </div>
             </div>
-            {metric.details && (
+            {typeof metric.details === 'object' && metric.details !== null && (
               <pre className="mt-3 overflow-x-auto rounded bg-surface-2 p-2 text-xs font-mono text-ink-1">
                 {JSON.stringify(metric.details, null, 2)}
               </pre>

@@ -14,7 +14,7 @@ import { Select } from "@/lib/ui/Select";
 import { Modal } from "@/lib/ui/Modal";
 import { Table, type Column } from "@/lib/ui/Table";
 import { StatusPill } from "@/lib/ui/StatusPill";
-import { EmptyState, ErrorState, Spinner } from "@/lib/ui/Feedback";
+import { EmptyState, ErrorState } from "@/lib/ui/Feedback";
 import { accountKeys, domainKeys } from "@/lib/query/keys";
 import {
   listAccounts, suspendAccount, unsuspendAccount, deleteAccount,
@@ -55,8 +55,7 @@ export function AccountsListPage() {
       result = result.filter(
         (a) =>
           a.username.toLowerCase().includes(query) ||
-          (a.domain || "").toLowerCase().includes(query) ||
-          (a.email || "").toLowerCase().includes(query),
+          (a.domain || "").toLowerCase().includes(query),
       );
     }
 
@@ -208,7 +207,7 @@ export function AccountsListPage() {
       title: "Suspend Account",
       description: `Are you sure you want to suspend "${confirmModal.account.username}"? This will temporarily disable all services for this account.`,
       confirmText: "Suspend",
-      confirmVariant: "warning" as const,
+      confirmVariant: "secondary" as const,
     },
     unsuspend: {
       title: "Unsuspend Account",

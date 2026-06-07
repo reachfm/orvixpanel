@@ -18,7 +18,7 @@ import { Input } from "@/lib/ui/Input";
 import { Select } from "@/lib/ui/Select";
 import { Table, type Column } from "@/lib/ui/Table";
 import { StatusPill } from "@/lib/ui/StatusPill";
-import { ErrorState, EmptyState, Spinner } from "@/lib/ui/Feedback";
+import { ErrorState, EmptyState } from "@/lib/ui/Feedback";
 import { auditKeys } from "@/lib/query/keys";
 import { listAudit, verifyAudit, type AuditEntry } from "@/lib/api/system";
 

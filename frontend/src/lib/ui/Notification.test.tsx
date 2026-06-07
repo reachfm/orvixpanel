@@ -104,6 +104,11 @@ describe("useNotification hook", () => {
 describe("NotificationContainer", () => {
   beforeEach(() => {
     useNotificationStore.getState().clear();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("should render nothing when no notifications", () => {
