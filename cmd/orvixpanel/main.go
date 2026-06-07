@@ -130,8 +130,8 @@ func run() error {
 	// 5b. Bootstrap root admin on first boot (v1.0). Logs the generated
 	// password so the operator can copy it from journalctl. v1.1 moves
 	// this to an interactive `orvixpanel init` wizard.
-	if err := bootstrapRootAdmin(context.Background(), database, authSvc, cfg); err != nil {
-		log.Warn().Err(err).Msg("bootstrap admin: skipped or failed")
+	if _, err := RunBootstrapWizard(context.Background(), database, authSvc, cfg, os.Args); err != nil {
+		return fmt.Errorf("bootstrap: %w", err)
 	}
 
 	// 5c. v0.3.0 services.

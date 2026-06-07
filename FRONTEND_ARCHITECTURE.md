@@ -14,11 +14,11 @@
 | UI framework         | **React 18**                      | ecosystem maturity, the rest of the company speaks it               |
 | Routing              | **TanStack Router 1**             | type-safe routes, route-level data loading, file-system agnostic    |
 | Server state         | **TanStack Query 5**              | cache + dedupe + invalidation + retry out of the box                |
-| Client state         | **Zustand 4** (with persist)     | tiny, no Provider hell, persisted slices for auth + theme          |
+| Client state         | **Zustand 4** (with persist)       | tiny, no Provider hell, persisted slices for auth + theme          |
 | Styling              | **Tailwind 3** + CSS variables    | design tokens in CSS, Tailwind utilities reference them            |
-| Form / validation    | (v0.3.0) — native + ApiError map  | first-party only; React Hook Form lands when forms multiply        |
-| Tests                | (v0.3.0) — none on the frontend   | backend integration is the load-bearing test surface                |
-| Linting              | (v0.3.0) — `tsc --noEmit`         | ESLint + Prettier are next-once-the-team-stops-fighting              |
+| Form / validation    | native + ApiError map             | first-party only; React Hook Form lands when forms multiply        |
+| Tests                | **Vitest** + Testing Library      | unit tests for stores, components, and hooks                        |
+| Linting              | `tsc --noEmit`                    | ESLint + Prettier deferred until team alignment                      |
 
 ## 2. Folder layout
 
@@ -30,16 +30,20 @@ frontend/
 ├── tsconfig.app.json             # app-side TS config
 ├── tsconfig.node.json            # vite.config.ts side
 ├── vite.config.ts
+├── vitest.config.ts              # Vitest test configuration
 ├── tailwind.config.js            # reads CSS variables for theme tokens
 ├── postcss.config.js
 ├── public/                       # copied verbatim to dist/
 │   └── favicon.svg
 └── src/
     ├── main.tsx                  # React mount, StrictMode, global CSS
-    ├── App.tsx                   # QueryClientProvider + RouterProvider
+    ├── App.tsx                   # QueryClientProvider + RouterProvider + ErrorBoundary
     ├── router.tsx                # code-based route tree
     ├── styles/
+    │   ├── index.css             # Tailwind directives
     │   └── globals.css           # @tailwind + CSS variable design tokens
+    ├── test/
+    │   └── setup.ts              # Vitest setup: mocks, jest-dom matchers
     ├── lib/
     │   ├── api/                  # typed wrappers over every backend route
     │   │   ├── client.ts         # fetch + 401-refresh + ApiError
@@ -62,9 +66,11 @@ frontend/
     │   │   ├── Card.tsx
     │   │   ├── cn.ts
     │   │   ├── Dropdown.tsx
+    │   │   ├── ErrorBoundary.tsx # React error boundary with fallback
     │   │   ├── Feedback.tsx       # Spinner / LoadingState / EmptyState / ErrorState / Skeleton
     │   │   ├── Input.tsx
     │   │   ├── Modal.tsx
+    │   │   ├── Notification.tsx  # Global toast notification system
     │   │   ├── PageHeader.tsx
     │   │   ├── Select.tsx
     │   │   ├── Sidebar.tsx
@@ -73,7 +79,7 @@ frontend/
     │   │   ├── Tabs.tsx
     │   │   └── Topbar.tsx
     │   └── layout/
-    │       └── AppLayout.tsx     # sidebar + topbar + <Outlet/>
+    │       └── AppLayout.tsx     # sidebar + topbar + <Outlet/> + route guards
     └── pages/                    # one file per route
         ├── Login.tsx
         ├── Dashboard.tsx
@@ -151,26 +157,28 @@ Pages never construct a `fetch` call directly. If a new endpoint ships, add a fu
 
 ## 6. Component library
 
-All components live in `frontend/src/lib/ui/`. The library has 17 components in v0.3.0:
+All components live in `frontend/src/lib/ui/`. The library has 19 components in v0.3.1:
 
-| Component     | Variants / Props                                  |
-|---------------|---------------------------------------------------|
-| `Button`      | `variant: primary/secondary/ghost/danger/outline`, `size: sm/md/lg`, `loading`, `leftIcon`/`rightIcon` |
-| `Badge`       | `tone: neutral/info/success/warning/danger/brand`, `variant: soft/solid/outline` |
-| `Breadcrumbs` | `items: Crumb[]`                                  |
-| `Card`        | `padding: none/sm/md/lg` + `CardHeader`           |
-| `Dropdown`    | `trigger: (open) => ReactNode`, `items: DropdownItem[]`, keyboard-navigable, click-outside-to-close |
-| `Feedback`    | `Spinner`, `LoadingState`, `EmptyState`, `ErrorState`, `Skeleton` |
-| `Input`       | `label`, `hint`, `error`, `leftAddon`, `rightAddon` |
-| `Modal`       | controlled, `width: sm/md/lg/xl`, Escape + click-outside to close |
-| `PageHeader`  | `title`, `description`, `actions`, `breadcrumbs`   |
-| `Select`      | native `<select>` styled, `label`/`hint`/`error`  |
-| `Sidebar`     | persistent left nav with active-route highlight   |
-| `StatusPill`  | `tone: neutral/success/warning/danger/info`, `dot` |
-| `Table`       | generic over `T`, `columns: Column<T>[]`, optional `onRowClick`, `isLoading`, `emptyState` |
-| `Tabs`        | controlled, panels are arbitrary JSX              |
-| `Topbar`      | search + license pill + theme toggle + user menu  |
-| `cn`          | the `clsx` re-export used everywhere               |
+| Component       | Variants / Props                                  |
+|-----------------|---------------------------------------------------|
+| `Button`        | `variant: primary/secondary/ghost/danger/outline`, `size: sm/md/lg`, `loading`, `leftIcon`/`rightIcon` |
+| `Badge`         | `tone: neutral/info/success/warning/danger/brand`, `variant: soft/solid/outline` |
+| `Breadcrumbs`   | `items: Crumb[]`                                  |
+| `Card`          | `padding: none/sm/md/lg` + `CardHeader`           |
+| `Dropdown`      | `trigger: (open) => ReactNode`, `items: DropdownItem[]`, keyboard-navigable, click-outside-to-close |
+| `ErrorBoundary` | React error boundary with user-friendly fallback UI, "Try again" + "Refresh page" actions, dev-mode error details |
+| `Feedback`      | `Spinner`, `LoadingState`, `EmptyState`, `ErrorState`, `Skeleton` |
+| `Input`         | `label`, `hint`, `error`, `leftAddon`, `rightAddon` |
+| `Modal`         | controlled, `width: sm/md/lg/xl`, Escape + click-outside to close |
+| `Notification`  | Zustand store + `NotificationContainer` + `useNotification` hook; toast notifications with auto-dismiss |
+| `PageHeader`    | `title`, `description`, `actions`, `breadcrumbs`   |
+| `Select`        | native `<select>` styled, `label`/`hint`/`error`  |
+| `Sidebar`       | persistent left nav with active-route highlight   |
+| `StatusPill`    | `tone: neutral/success/warning/danger/info`, `dot` |
+| `Table`         | generic over `T`, `columns: Column<T>[]`, optional `onRowClick`, `isLoading`, `emptyState` |
+| `Tabs`          | controlled, panels are arbitrary JSX              |
+| `Topbar`        | search + license pill + theme toggle + user menu  |
+| `cn`            | the `clsx` re-export used everywhere               |
 
 ### Adding a new component
 
@@ -179,6 +187,7 @@ All components live in `frontend/src/lib/ui/`. The library has 17 components in 
 3. Use `cn` for class composition.
 4. Use CSS variables (`bg-surface-2`, `text-ink-3`) for colors, never hardcoded hex.
 5. Keep the component dumb — no TanStack Query, no router. Pages compose.
+6. Write tests in `Foo.test.tsx` alongside the component.
 
 ## 7. Routing
 
@@ -207,6 +216,25 @@ Any 401  -->  client tries /auth/refresh (single in-flight)
 ```
 
 Tokens are persisted to `localStorage` via `zustand/persist` so a page refresh doesn't bounce the operator. Refresh runs transparently inside the API client.
+
+### Route Guards & Session Management
+
+AppLayout provides route guards with the following behavior:
+
+1. **Auth check**: Redirects to `/login` if no access token
+2. **Session monitoring**: Checks JWT expiry every 30 seconds
+3. **Expiry warning**: Shows notification 5 minutes before token expires
+4. **Auto-logout**: Clears auth and redirects to login when token expires
+
+```tsx
+// Session expiry is parsed from JWT payload
+function parseJWTExpiry(token: string): number | null {
+  const payload = JSON.parse(atob(token.split(".")[1]));
+  return payload.exp ? payload.exp * 1_000 : null;
+}
+```
+
+Use `useNotification()` to show user-facing messages during auth events.
 
 ## 9. Build & deploy
 

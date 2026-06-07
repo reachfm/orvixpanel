@@ -2,15 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: dark;
-}
-
+/* Base styles - theme is controlled by CSS variables in globals.css */
 html, body, #root {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: #0b1020;
-  color: #e8ecf3;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
