@@ -1,18 +1,45 @@
-﻿bin/
+﻿# Build outputs
+bin/
 *.exe
 *.db
 *.sqlite
+
+# Node / frontend
 node_modules/
 frontend/node_modules/
 frontend/dist/
+frontend/coverage/
+frontend/.vite/
 frontend/tsconfig.*.tsbuildinfo
+package-lock.json.bak
+
+# Secrets / env
 .env
 .env.*
+*.pem
+*.key
+*.crt
+
+# Logs / runtime / OS
 logs/
 tmp/
 *.log
+*.bak
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Operator scripts that don't belong in the public repo
 smoke-*.txt
 smoke-*.pid
+smoke-*.out
 check-license.sh
 smoke-quick.sh
 
+# Anything inside an installed prefix (defensive; should never be in the
+# repo tree but listed in case someone accidentally mounted a path).
+/opt/
+/var/
+/run/
+/etc/orvixpanel/
