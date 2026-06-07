@@ -28,6 +28,7 @@ import (
 	"github.com/orvixpanel/orvixpanel/internal/quota"
 	"github.com/orvixpanel/orvixpanel/internal/rbac"
 	"github.com/orvixpanel/orvixpanel/internal/vault"
+	"github.com/orvixpanel/orvixpanel/internal/web"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
@@ -109,6 +110,12 @@ func NewServer(d Deps) *Server {
 	registerV1(v1grp, d)
 
 	log.Info().Int("routes", len(app.GetRoutes())).Msg("http server initialized")
+
+	// Mount the Enterprise UI last so the API routes take priority.
+	// The web package's catch-all only fires for paths the API
+	// didn't already match.
+	web.RegisterRoutes(app)
+
 	return &Server{app: app, deps: d}
 }
 

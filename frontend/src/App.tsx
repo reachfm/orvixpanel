@@ -1,57 +1,32 @@
-import { useEffect, useState } from 'react';
-import { useTheme } from './hooks/useTheme';
+/**
+ * App root. Wires the three global providers (TanStack Query,
+ * TanStack Router, theme init) in the order they need to appear.
+ *
+ * The theme bootstrap (dark class on <html>) is applied by the
+ * Zustand store on hydrate — see src/lib/theme/store.ts.
+ */
 
-interface Theme {
-  brand_name: string;
-  primary_color: string;
-  secondary_color: string;
-  logo_url: string;
-  support_email: string;
-}
+import { useEffect } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { RouterProvider } from "@tanstack/react-router";
+import { router } from "@/router";
+import { queryClient } from "@/lib/query/client";
+import { useThemeStore } from "@/lib/theme/store";
 
-export default function App() {
-  const theme = useTheme<Theme>('/api/v1/public/theme');
-  const [health, setHealth] = useState<string>('checking…');
+export function App() {
+  const theme = useThemeStore((s) => s.theme);
 
+  // Apply the theme to <html> on first render + when it changes.
   useEffect(() => {
-    fetch('/healthz')
-      .then((r) => r.json())
-      .then((d) => setHealth(d.status))
-      .catch(() => setHealth('unreachable'));
-  }, []);
+    const root = document.documentElement;
+    if (theme === "dark") root.classList.add("dark");
+    else root.classList.remove("dark");
+    root.style.colorScheme = theme;
+  }, [theme]);
 
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        background: theme?.secondary_color ?? '#0b1020',
-        color: '#e8ecf3',
-        display: 'grid',
-        placeItems: 'center',
-        fontFamily: 'system-ui, sans-serif',
-        padding: 24,
-      }}
-    >
-      <section
-        style={{
-          maxWidth: 520,
-          textAlign: 'center',
-          background: 'rgba(255,255,255,0.04)',
-          padding: 32,
-          borderRadius: 12,
-          border: '1px solid rgba(255,255,255,0.08)',
-        }}
-      >
-        <h1 style={{ color: theme?.primary_color ?? '#1a73e8', margin: 0 }}>
-          {theme?.brand_name ?? 'OrvixPanel'}
-        </h1>
-        <p style={{ color: '#99a3b3', lineHeight: 1.5, marginTop: 12 }}>
-          Phase 1 frontend scaffold is live. API health: <strong>{health}</strong>.
-        </p>
-        <p style={{ color: '#99a3b3', fontSize: 14 }}>
-          Login UI, dashboard, and per-feature pages arrive in later phases.
-        </p>
-      </section>
-    </main>
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
   );
 }

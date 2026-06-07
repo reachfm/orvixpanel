@@ -39,3 +39,6 @@ func (s *Service) AtomicSwap(username, domain, newRelease string) error {
 func (s *Service) CurrentRelease(username, domain string) (string, error) {
 	return "", ErrUnsupported
 }
+func (s *Service) ListReleases(username, domain string) ([]string, error) {
+	return nil, ErrUnsupported
+}

@@ -1,32 +1,18 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import Login from './Login';
-import Dashboard from './Dashboard';
-import FileManager from './FileManager';
-import './styles/index.css';
+/**
+ * Entry point. The Vite-generated bundle inlines the bootstrap
+ * script in index.html; this file is the React mount.
+ */
 
-function Router() {
-  const path = window.location.pathname;
-  if (path === '/login' || path === '/') {
-    return <Login />;
-  }
-  if (path === '/app' || path === '/dashboard') {
-    return <Dashboard />;
-  }
-  if (path === '/files') {
-    const params = new URLSearchParams(window.location.search);
-    return <FileManager accountId={params.get('account') || ''} />;
-  }
-  return (
-    <div style={{ padding: 40, color: '#e8ecf3', background: '#0b1020', minHeight: '100vh' }}>
-      <h1>404</h1>
-      <p>Unknown path: <code>{path}</code></p>
-    </div>
-  );
-}
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { App } from "@/App";
+import "@/styles/globals.css";
 
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-  <React.StrictMode>
-    <Router />
-  </React.StrictMode>,
+const el = document.getElementById("root");
+if (!el) throw new Error("missing #root element in index.html");
+
+createRoot(el).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
 );

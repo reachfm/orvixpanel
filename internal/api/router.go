@@ -96,4 +96,8 @@ func registerV1(g fiber.Router, d Deps) {
 	g.Post("/accounts/:id/domains", v1.CreateDomainHandler(domDeps)).Name("domain.create")
 	g.Get("/accounts/:id/domains", v1.ListDomainsHandler(domDeps)).Name("domain.read")
 	g.Delete("/accounts/:id/domains/:domain", v1.DeleteDomainHandler(domDeps)).Name("domain.delete")
+
+	// Deployments (v0.3.0 Enterprise UI). Read-only list of release
+	// directories on disk, scoped to a single account.
+	g.Get("/accounts/:id/deployments", v1.ListDeploymentsHandler(domDeps)).Name("deployment.read")
 }
