@@ -26,6 +26,12 @@ import (
 //   - /admin/tenants/:id/quotas — per-tenant resource limits
 //   - /vault/secrets/*        — encrypted secrets store
 //   - /me/quotas              — caller's own quota
+//
+// v0.4.0 DNS Engine adds:
+//   - /dns/zones/*            — DNS zone CRUD
+//   - /dns/templates/*        — Zone template management
+//   - /dns/validate           — Record validation
+//   - /dns/lookup/:domain     — Local DNS lookup
 func registerV1(g fiber.Router, d Deps) {
 	g.Get("/me", v1.MeHandler).Name("auth.me")
 	g.Get("/me/quotas", quota.MeHandler(d.Quota))
@@ -100,4 +106,21 @@ func registerV1(g fiber.Router, d Deps) {
 	// Deployments (v0.3.0 Enterprise UI). Read-only list of release
 	// directories on disk, scoped to a single account.
 	g.Get("/accounts/:id/deployments", v1.ListDeploymentsHandler(domDeps)).Name("deployment.read")
+
+	// DNS Engine (v0.4.0).
+	dnsDeps := v1.DNSDeps{DB: d.DB, DNS: d.DNS, Audit: d.Audit}
+	g.Get("/dns/zones", v1.ListZonesHandler(dnsDeps)).Name("dns.zone.read")
+	g.Post("/dns/zones", v1.CreateZoneHandler(dnsDeps)).Name("dns.zone.write")
+	g.Get("/dns/zones/:id", v1.GetZoneHandler(dnsDeps)).Name("dns.zone.read")
+	g.Put("/dns/zones/:id", v1.UpdateZoneHandler(dnsDeps)).Name("dns.zone.write")
+	g.Delete("/dns/zones/:id", v1.DeleteZoneHandler(dnsDeps)).Name("dns.zone.delete")
+	g.Get("/dns/zones/:id/records", v1.ListRecordsHandler(dnsDeps)).Name("dns.record.read")
+	g.Post("/dns/zones/:id/records", v1.CreateRecordHandler(dnsDeps)).Name("dns.record.write")
+	g.Put("/dns/zones/:id/records/:recordId", v1.UpdateRecordHandler(dnsDeps)).Name("dns.record.write")
+	g.Delete("/dns/zones/:id/records/:recordId", v1.DeleteRecordHandler(dnsDeps)).Name("dns.record.delete")
+	g.Get("/dns/templates", v1.ListTemplatesHandler(dnsDeps)).Name("dns.template.read")
+	g.Post("/dns/templates", v1.CreateTemplateHandler(dnsDeps)).Name("dns.template.write")
+	g.Post("/dns/templates/:id/apply", v1.ApplyTemplateHandler(dnsDeps)).Name("dns.template.apply")
+	g.Post("/dns/validate", v1.ValidateRecordHandler(dnsDeps)).Name("dns.validate")
+	g.Get("/dns/lookup/:domain", v1.LookupHandler(dnsDeps)).Name("dns.lookup")
 }

@@ -208,3 +208,43 @@ type LicenseStore struct {
 	UploadedByID  string    `gorm:"index" json:"uploaded_by_id"`
 	UploadedAt    time.Time `gorm:"not null" json:"uploaded_at"`
 }
+
+// -----------------------------------------------------------------------------
+// v0.4.0 DNS Engine — DNS models
+// -----------------------------------------------------------------------------
+
+// DNSZone represents a DNS zone (domain namespace).
+type DNSZone struct {
+	Base
+	AccountID   string `gorm:"index;not null" json:"account_id"`
+	TenantID    string `gorm:"index;not null" json:"tenant_id"`
+	Domain      string `gorm:"uniqueIndex;not null" json:"domain"`
+	Type        string `gorm:"not null;default:'native'" json:"type"` // native, master, slave
+	Masters     string `gorm:"type:text" json:"masters,omitempty"`    // JSON array for slave zones
+	SoaRefresh  int    `gorm:"default:10800" json:"soa_refresh"`
+	SoaRetry    int    `gorm:"default:7200" json:"soa_retry"`
+	SoaExpire   int    `gorm:"default:604800" json:"soa_expire"`
+	SoaMinimum  int    `gorm:"default:3600" json:"soa_minimum"`
+	Status      string `gorm:"default:'active'" json:"status"` // active, suspended, pending
+}
+
+// DNSRecord represents a single DNS record within a zone.
+type DNSRecord struct {
+	Base
+	ZoneID    string `gorm:"index;not null" json:"zone_id"`
+	Name      string `gorm:"not null" json:"name"`         // e.g., "@" or "www"
+	Type      string `gorm:"not null;index" json:"type"`   // A, AAAA, MX, TXT, CNAME, NS, SRV, CAA
+	Content   string `gorm:"type:text;not null" json:"content"`
+	TTL       int    `gorm:"default:3600" json:"ttl"`
+	Priority  int    `gorm:"default:0" json:"priority"`    // for MX, SRV records
+	Disabled  bool   `gorm:"default:false" json:"disabled"`
+}
+
+// DNSZoneTemplate represents a reusable zone template.
+type DNSZoneTemplate struct {
+	Base
+	TenantID    string `gorm:"index;not null" json:"tenant_id"`
+	Name        string `gorm:"uniqueIndex;not null" json:"name"`
+	Description string `gorm:"type:text" json:"description,omitempty"`
+	Records     string `gorm:"type:text;not null" json:"records"` // JSON array of record definitions
+}

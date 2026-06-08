@@ -58,6 +58,7 @@ func Open(cfg config.DBConfig) (*gorm.DB, error) {
 //
 // v0.1.0: 5 tables (tenant, user, user_session, account, audit_entry)
 // v0.3.0: +5 tables (api_key, custom_role, secret, tenant_quota, license_store)
+// v0.4.0: +3 tables (dns_zone, dns_record, dns_zone_template)
 func Migrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(
 		&models.Tenant{},
@@ -71,6 +72,10 @@ func Migrate(db *gorm.DB) error {
 		&models.Secret{},
 		&models.TenantQuota{},
 		&models.LicenseStore{},
+		// v0.4.0 DNS Engine
+		&models.DNSZone{},
+		&models.DNSRecord{},
+		&models.DNSZoneTemplate{},
 	); err != nil {
 		return fmt.Errorf("automigrate: %w", err)
 	}

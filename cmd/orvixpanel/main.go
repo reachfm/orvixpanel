@@ -1,6 +1,6 @@
-// Command orvixpanel is the v0.3.0 entry point.
+// Command orvixpanel is the v0.4.0 entry point.
 //
-// v0.3.0 Enterprise Edition:
+// v0.4.0 DNS Engine:
 //   - Phase 1 Foundation: auth + license + audit + tenant + account
 //   - + Encrypted secrets vault (AES-256-GCM)
 //   - + Custom RBAC roles
@@ -8,6 +8,8 @@
 //   - + Audit log search + CEF export
 //   - + Tenant-level quotas
 //   - + Encrypted license persistence + read-only mode on expiry
+//   - + DNS Engine with SQLite-first storage
+//   - + Optional PowerDNS sync when ORVIX_POWERDNS_URL is set
 //
 // See ENTERPRISE_PLAN.md and RELEASE_NOTES.md.
 package main
@@ -27,6 +29,7 @@ import (
 	"github.com/orvixpanel/orvixpanel/internal/auth"
 	"github.com/orvixpanel/orvixpanel/internal/config"
 	"github.com/orvixpanel/orvixpanel/internal/db"
+	"github.com/orvixpanel/orvixpanel/internal/dns"
 	"github.com/orvixpanel/orvixpanel/internal/hosting"
 	"github.com/orvixpanel/orvixpanel/internal/license"
 	"github.com/orvixpanel/orvixpanel/internal/quota"
@@ -174,6 +177,17 @@ func run() error {
 		log.Warn().Err(err).Msg("hosting ensure-dirs: some paths will fail until /var/lib/orvixpanel is writable")
 	}
 
+	// 5e. v0.4.0 DNS Engine service.
+	dnsSvc, err := dns.NewService(database)
+	if err != nil {
+		return fmt.Errorf("dns service: %w", err)
+	}
+	if dnsSvc.IsPowerDNSEnabled() {
+		log.Info().Msg("powerdns sync enabled")
+	} else {
+		log.Info().Msg("dns engine running in local-only mode")
+	}
+
 	// 6. HTTP server.
 	server := api.NewServer(api.Deps{
 		Config:       cfg,
@@ -186,6 +200,7 @@ func run() error {
 		Quota:        quotaSvc,
 		APIKeys:      apiKeySvc,
 		Hosting:      hostingSvc,
+		DNS:          dnsSvc,
 	})
 
 	httpErr := make(chan error, 1)

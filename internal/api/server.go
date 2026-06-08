@@ -7,7 +7,11 @@
 //   - Tenant quotas
 //   - Encrypted license persistence + read-only mode
 //
-// Routes that the spec calls for in later phases (DNS, mail, SSL,
+// v0.4.0 adds:
+//   - DNS Engine with SQLite-first storage
+//   - Optional PowerDNS sync when ORVIX_POWERDNS_URL is set
+//
+// Routes that the spec calls for in later phases (mail, SSL,
 // firewall, files, backups, WAF, Guardian, reseller, provisioning)
 // return 501 Not Implemented — see stubs.go.
 package api
@@ -23,6 +27,7 @@ import (
 	"github.com/orvixpanel/orvixpanel/internal/audit"
 	"github.com/orvixpanel/orvixpanel/internal/auth"
 	"github.com/orvixpanel/orvixpanel/internal/config"
+	"github.com/orvixpanel/orvixpanel/internal/dns"
 	"github.com/orvixpanel/orvixpanel/internal/hosting"
 	"github.com/orvixpanel/orvixpanel/internal/license"
 	"github.com/orvixpanel/orvixpanel/internal/quota"
@@ -45,6 +50,7 @@ type Deps struct {
 	Quota        *quota.Service
 	APIKeys      *auth.KeyService
 	Hosting      *hosting.Service
+	DNS          *dns.Service
 }
 
 // Server is the *fiber.App wrapper.
