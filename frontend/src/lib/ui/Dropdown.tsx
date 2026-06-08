@@ -10,14 +10,16 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "./cn";
 
-export interface DropdownItem {
-  key: string;
-  label: ReactNode;
-  onClick: () => void;
-  destructive?: boolean;
-  disabled?: boolean;
-  icon?: ReactNode;
-}
+export type DropdownItem =
+  | {
+      key: string;
+      label: ReactNode;
+      onClick: () => void;
+      destructive?: boolean;
+      disabled?: boolean;
+      icon?: ReactNode;
+    }
+  | { key: string; type: "divider" };
 
 export function Dropdown({
   trigger,
@@ -71,26 +73,32 @@ export function Dropdown({
             align === "right" ? "right-0" : "left-0",
           )}
         >
-          {items.map((it) => (
-            <button
-              key={it.key}
-              type="button"
-              role="menuitem"
-              disabled={it.disabled}
-              onClick={() => {
-                setOpen(false);
-                it.onClick();
-              }}
-              className={cn(
-                "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
-                "hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed",
-                it.destructive ? "text-danger" : "text-ink-1",
-              )}
-            >
-              {it.icon}
-              {it.label}
-            </button>
-          ))}
+          {items.map((it) => {
+            if ("type" in it && it.type === "divider") {
+              return <div key={it.key} className="my-1 border-t border-surface-border" />;
+            }
+            const item = it as Exclude<DropdownItem, { type: "divider" }>;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                role="menuitem"
+                disabled={item.disabled}
+                onClick={() => {
+                  setOpen(false);
+                  item.onClick();
+                }}
+                className={cn(
+                  "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
+                  "hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed",
+                  item.destructive ? "text-danger" : "text-ink-1",
+                )}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

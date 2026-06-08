@@ -306,7 +306,7 @@ export function ZonesListPage() {
             placeholder="example.com"
             value={newZoneDomain}
             onChange={(e) => setNewZoneDomain(e.target.value)}
-            description="Enter the domain name for the DNS zone"
+            hint="Enter the domain name for the DNS zone"
           />
           <Select
             label="Type"

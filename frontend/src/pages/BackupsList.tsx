@@ -406,7 +406,7 @@ export function BackupsListPage() {
             placeholder="Domain to backup"
             value={newBackupDomainID}
             onChange={(e) => setNewBackupDomainID(e.target.value)}
-            description="Leave empty to backup all accessible data"
+            hint="Leave empty to backup all accessible data"
           />
           <Input
             label="Retention Days"
@@ -415,7 +415,7 @@ export function BackupsListPage() {
             max={365}
             value={newBackupRetention}
             onChange={(e) => setNewBackupRetention(parseInt(e.target.value) || 30)}
-            description="Backup will be automatically deleted after this period"
+            hint="Backup will be automatically deleted after this period"
           />
         </div>
       </Modal>

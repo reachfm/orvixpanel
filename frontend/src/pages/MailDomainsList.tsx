@@ -205,7 +205,7 @@ export function MailDomainsListPage() {
             value={newDomain}
             onChange={(e) => setNewDomain(e.target.value)}
             placeholder="example.com"
-            description="Enter the domain name without www"
+            hint="Enter the domain name without www"
           />
 
           <Input

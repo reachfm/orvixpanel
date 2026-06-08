@@ -17,12 +17,12 @@ import { Spinner, EmptyState, ErrorState } from "@/lib/ui/Feedback";
 import { Table, type Column } from "@/lib/ui/Table";
 import { Select } from "@/lib/ui/Select";
 import { formatDate } from "@/lib/utils";
-import type { Alias } from "@/lib/api/mail";
+import type { MailAlias } from "@/lib/api/mail";
 
 export function MailAliasesPage() {
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<Alias | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<MailAlias | null>(null);
   const [sourceEmail, setSourceEmail] = useState("");
   const [destinations, setDestinations] = useState("");
   const [selectedDomain, setSelectedDomain] = useState("");
@@ -80,7 +80,7 @@ export function MailAliasesPage() {
     }
   };
 
-  const columns: Column<Alias>[] = [
+  const columns: Column<MailAlias>[] = [
     {
       key: "source",
       header: "Source Email",
@@ -95,7 +95,7 @@ export function MailAliasesPage() {
           <div className="flex flex-wrap gap-1">
             {dests.length > 0 ? (
               dests.map((dest, i) => (
-                <Badge key={i} tone="neutral" size="sm">
+                <Badge key={i} tone="neutral">
                   {dest}
                 </Badge>
               ))
@@ -229,7 +229,7 @@ export function MailAliasesPage() {
             value={sourceEmail}
             onChange={(e) => setSourceEmail(e.target.value)}
             placeholder="alias"
-            description={selectedDomain ? `Full address: ${sourceEmail || "alias"}@${domains.find(d => d.id === selectedDomain)?.domain}` : undefined}
+            hint={selectedDomain ? `Full address: ${sourceEmail || "alias"}@${domains.find(d => d.id === selectedDomain)?.domain}` : undefined}
           />
 
           <Input
@@ -237,7 +237,7 @@ export function MailAliasesPage() {
             value={destinations}
             onChange={(e) => setDestinations(e.target.value)}
             placeholder="user1@example.com, user2@example.com"
-            description="Comma-separated list of destination email addresses"
+            hint="Comma-separated list of destination email addresses"
           />
         </div>
       </Modal>

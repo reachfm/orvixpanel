@@ -420,7 +420,7 @@ export function CertificatesListPage() {
             placeholder="www.example.com, api.example.com"
             value={newCertSANs}
             onChange={(e) => setNewCertSANs(e.target.value)}
-            description="Comma-separated list of additional domains"
+            hint="Comma-separated list of additional domains"
           />
           <Select
             label="Provider"

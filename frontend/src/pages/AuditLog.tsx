@@ -20,7 +20,6 @@ import { Table, type Column } from "@/lib/ui/Table";
 import { StatusPill } from "@/lib/ui/StatusPill";
 import { ErrorState, EmptyState } from "@/lib/ui/Feedback";
 import { auditKeys } from "@/lib/query/keys";
-import { formatDate } from "@/lib/utils";
 import { listAudit, verifyAudit, type AuditEntry } from "@/lib/api/system";
 
 const PAGE_SIZE = 25;

@@ -18,7 +18,7 @@ import {
 import { Button } from "@/lib/ui/Button";
 import { Input } from "@/lib/ui/Input";
 import { Select } from "@/lib/ui/Select";
-import { Card, CardHeader } from "@/lib/ui/Card";
+import { Card } from "@/lib/ui/Card";
 import { Badge } from "@/lib/ui/Badge";
 import { Modal } from "@/lib/ui/Modal";
 import { PageHeader } from "@/lib/ui/PageHeader";
@@ -166,9 +166,9 @@ export function MailboxesListPage() {
       header: "Protocols",
       cell: (m) => (
         <div className="flex flex-wrap gap-1">
-          {m.enable_imap && <Badge tone="info" size="sm">IMAP</Badge>}
-          {m.enable_pop3 && <Badge tone="info" size="sm">POP3</Badge>}
-          {m.enable_smtp && <Badge tone="info" size="sm">SMTP</Badge>}
+          {m.enable_imap && <Badge tone="info">IMAP</Badge>}
+          {m.enable_pop3 && <Badge tone="info">POP3</Badge>}
+          {m.enable_smtp && <Badge tone="info">SMTP</Badge>}
           {!m.enable_imap && !m.enable_pop3 && !m.enable_smtp && (
             <span className="text-xs text-ink-3">—</span>
           )}
@@ -313,7 +313,7 @@ export function MailboxesListPage() {
             value={newEmail}
             onChange={(e) => setNewEmail(e.target.value)}
             placeholder="john"
-            description={selectedDomain ? `Full address: ${newEmail || "username"}@${domains.find(d => d.id === selectedDomain)?.domain}` : undefined}
+            hint={selectedDomain ? `Full address: ${newEmail || "username"}@${domains.find(d => d.id === selectedDomain)?.domain}` : undefined}
           />
 
           <Input

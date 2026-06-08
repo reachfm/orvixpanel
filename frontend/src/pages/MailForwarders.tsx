@@ -18,12 +18,12 @@ import { Table, type Column } from "@/lib/ui/Table";
 import { Select } from "@/lib/ui/Select";
 import { formatDate } from "@/lib/utils";
 import { cn } from "@/lib/ui/cn";
-import type { Forwarder } from "@/lib/api/mail";
+import type { MailForwarder } from "@/lib/api/mail";
 
 export function MailForwardersPage() {
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<Forwarder | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<MailForwarder | null>(null);
   const [sourceEmail, setSourceEmail] = useState("");
   const [destinations, setDestinations] = useState("");
   const [selectedDomain, setSelectedDomain] = useState("");
@@ -84,7 +84,7 @@ export function MailForwardersPage() {
     }
   };
 
-  const columns: Column<Forwarder>[] = [
+  const columns: Column<MailForwarder>[] = [
     {
       key: "source",
       header: "Source Email",
@@ -99,7 +99,7 @@ export function MailForwardersPage() {
           <div className="flex flex-wrap gap-1">
             {dests.length > 0 ? (
               dests.map((dest, i) => (
-                <Badge key={i} tone="neutral" size="sm">
+                <Badge key={i} tone="neutral">
                   {dest}
                 </Badge>
               ))
@@ -242,7 +242,7 @@ export function MailForwardersPage() {
             value={sourceEmail}
             onChange={(e) => setSourceEmail(e.target.value)}
             placeholder="from@domain.com"
-            description={selectedDomain ? `Full address: ${sourceEmail || "from"}@${domains.find(d => d.id === selectedDomain)?.domain}` : undefined}
+            hint={selectedDomain ? `Full address: ${sourceEmail || "from"}@${domains.find(d => d.id === selectedDomain)?.domain}` : undefined}
           />
 
           <Input
@@ -250,7 +250,7 @@ export function MailForwardersPage() {
             value={destinations}
             onChange={(e) => setDestinations(e.target.value)}
             placeholder="dest1@example.com, dest2@example.com"
-            description="Comma-separated list of destination email addresses"
+            hint="Comma-separated list of destination email addresses"
           />
 
           {/* Keep Local Copy Toggle */}
