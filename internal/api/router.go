@@ -7,6 +7,7 @@ import (
 	"github.com/orvixpanel/orvixpanel/internal/auth"
 	"github.com/orvixpanel/orvixpanel/internal/quota"
 	"github.com/orvixpanel/orvixpanel/internal/rbac"
+	"github.com/orvixpanel/orvixpanel/internal/ssl"
 	"github.com/orvixpanel/orvixpanel/internal/vault"
 )
 
@@ -32,6 +33,14 @@ import (
 //   - /dns/templates/*        — Zone template management
 //   - /dns/validate           — Record validation
 //   - /dns/lookup/:domain     — Local DNS lookup
+//
+// v0.5.0 SSL Engine adds:
+//   - /ssl/*                 — SSL certificate management
+//   - /ssl/certificates      — List/manage certificates
+//   - /ssl/import            — Import existing certificates
+//   - /ssl/health            — Certificate health scan
+//   - /ssl/events            — SSL audit events
+//   - /ssl/dashboard         — Dashboard statistics
 func registerV1(g fiber.Router, d Deps) {
 	g.Get("/me", v1.MeHandler).Name("auth.me")
 	g.Get("/me/quotas", quota.MeHandler(d.Quota))
@@ -123,4 +132,23 @@ func registerV1(g fiber.Router, d Deps) {
 	g.Post("/dns/templates/:id/apply", v1.ApplyTemplateHandler(dnsDeps)).Name("dns.template.apply")
 	g.Post("/dns/validate", v1.ValidateRecordHandler(dnsDeps)).Name("dns.validate")
 	g.Get("/dns/lookup/:domain", v1.LookupHandler(dnsDeps)).Name("dns.lookup")
+
+	// SSL Engine (v0.5.0) — Certificate lifecycle management.
+	sslDeps := ssl.SSLDeps{DB: d.DB}
+	sslGroup := g.Group("/ssl")
+
+	// Certificate CRUD.
+	sslGroup.Get("/certificates", ssl.ListCertificatesHandler(sslDeps)).Name("ssl.cert.read")
+	sslGroup.Get("/certificates/:id", ssl.GetCertificateHandler(sslDeps)).Name("ssl.cert.read")
+	sslGroup.Post("/certificates", ssl.IssueCertificateHandler(sslDeps, nil)).Name("ssl.cert.write")
+	sslGroup.Post("/certificates/:id/renew", ssl.RenewCertificateHandler(sslDeps, nil)).Name("ssl.cert.write")
+	sslGroup.Post("/certificates/:id/revoke", ssl.RevokeCertificateHandler(sslDeps, nil)).Name("ssl.cert.write")
+	sslGroup.Delete("/certificates/:id", ssl.DeleteCertificateHandler(sslDeps, nil)).Name("ssl.cert.write")
+	sslGroup.Post("/import", ssl.ImportCertificateHandler(sslDeps, nil)).Name("ssl.cert.write")
+
+	// Health & events.
+	sslGroup.Get("/health", ssl.GetHealthHandler(sslDeps)).Name("ssl.health.read")
+	sslGroup.Get("/events", ssl.GetSSLEventsHandler(sslDeps)).Name("ssl.events.read")
+	sslGroup.Get("/certificates/:id/events", ssl.GetCertificateEventsHandler(sslDeps)).Name("ssl.events.read")
+	sslGroup.Get("/dashboard", ssl.GetDashboardStatsHandler(sslDeps)).Name("ssl.dashboard.read")
 }

@@ -44,6 +44,8 @@ import { SettingsPage } from "@/pages/Settings";
 import { ZonesListPage } from "@/pages/ZonesList";
 import { ZoneDetailPage } from "@/pages/ZoneDetail";
 import { DNSTemplatesPage } from "@/pages/DNSTemplates";
+import { CertificatesListPage } from "@/pages/CertificatesList";
+import { CertificateDetailPage } from "@/pages/CertificateDetail";
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
@@ -142,6 +144,19 @@ const dnsTemplatesRoute = createRoute({
   component: DNSTemplatesPage,
 });
 
+// SSL routes
+const sslCertificatesListRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/ssl/certificates",
+  component: CertificatesListPage,
+});
+
+const sslCertificateDetailRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/ssl/certificates/$id",
+  component: CertificateDetailPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   appLayoutRoute.addChildren([
@@ -158,6 +173,8 @@ const routeTree = rootRoute.addChildren([
     dnsZonesListRoute,
     dnsZoneDetailRoute,
     dnsTemplatesRoute,
+    sslCertificatesListRoute,
+    sslCertificateDetailRoute,
   ]),
 ]);
 

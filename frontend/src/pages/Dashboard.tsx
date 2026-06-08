@@ -29,6 +29,7 @@ import { listAccounts } from "@/lib/api/accounts";
 import { listDomains } from "@/lib/api/domains";
 import { listDeployments } from "@/lib/api/deployments";
 import { useAuthStore } from "@/lib/auth/store";
+import { sslKeys, getSSLDashboardStats } from "@/lib/api/ssl";
 
 export function DashboardPage() {
   const user = useAuthStore((s) => s.user);
@@ -39,6 +40,7 @@ export function DashboardPage() {
   const lic = useQuery({ queryKey: systemKeys.licenseRenewal(), queryFn: licenseRenewal });
   const accts = useQuery({ queryKey: accountKeys.list(), queryFn: listAccounts });
   const audit = useQuery({ queryKey: auditKeys.list(5), queryFn: () => listAudit(5) });
+  const sslStats = useQuery({ queryKey: sslKeys.dashboard(), queryFn: getSSLDashboardStats });
 
   // Fetch domains and deployments for each account in parallel
   const accounts = accts.data?.accounts ?? [];
@@ -120,7 +122,7 @@ export function DashboardPage() {
       </div>
 
       {/* Second row — resource counts */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         <MetricCard
           label="Accounts"
           value={stats.accountCount}
@@ -139,6 +141,13 @@ export function DashboardPage() {
           value={stats.deploymentCount}
           isLoading={accts.isLoading || deploymentQueries.some((q) => q.isLoading)}
           href="/deployments"
+        />
+        <MetricCard
+          label="SSL Certs"
+          value={sslStats.data?.total_active ?? 0}
+          isLoading={sslStats.isLoading}
+          href="/ssl/certificates"
+          subtitle={sslStats.data?.expiring_soon ? `${sslStats.data.expiring_soon} expiring soon` : undefined}
         />
         <MetricCard
           label="Version"
