@@ -18,6 +18,9 @@
  *     /system-health                  SystemHealth
  *     /audit-log                      AuditLog
  *     /settings                       Settings
+ *     /dns/zones                      ZonesList
+ *     /dns/zones/:id                  ZoneDetail
+ *     /dns/templates                  DNSTemplates
  */
 
 import {
@@ -38,6 +41,9 @@ import { DeploymentsListPage } from "@/pages/DeploymentsList";
 import { SystemHealthPage } from "@/pages/SystemHealth";
 import { AuditLogPage } from "@/pages/AuditLog";
 import { SettingsPage } from "@/pages/Settings";
+import { ZonesListPage } from "@/pages/ZonesList";
+import { ZoneDetailPage } from "@/pages/ZoneDetail";
+import { DNSTemplatesPage } from "@/pages/DNSTemplates";
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
@@ -117,6 +123,25 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
+// DNS routes
+const dnsZonesListRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/dns/zones",
+  component: ZonesListPage,
+});
+
+const dnsZoneDetailRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/dns/zones/$id",
+  component: ZoneDetailPage,
+});
+
+const dnsTemplatesRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/dns/templates",
+  component: DNSTemplatesPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   appLayoutRoute.addChildren([
@@ -130,6 +155,9 @@ const routeTree = rootRoute.addChildren([
     systemHealthRoute,
     auditLogRoute,
     settingsRoute,
+    dnsZonesListRoute,
+    dnsZoneDetailRoute,
+    dnsTemplatesRoute,
   ]),
 ]);
 

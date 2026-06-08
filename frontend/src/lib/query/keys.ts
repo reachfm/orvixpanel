@@ -45,3 +45,17 @@ export const auditKeys = {
   list:   (limit: number): readonly unknown[] => ["audit", "list", limit],
   search: (params: object): readonly unknown[] => ["audit", "search", params],
 };
+
+// DNS
+export const dnsZoneKeys = {
+  all:     (): readonly unknown[] => ["dns", "zones"],
+  list:    (): readonly unknown[] => ["dns", "zones", "list"],
+  detail:  (id: string): readonly unknown[] => ["dns", "zones", "detail", id],
+  records: (zoneId: string): readonly unknown[] => ["dns", "zones", "records", zoneId],
+};
+
+export const dnsTemplateKeys = {
+  all:    (): readonly unknown[] => ["dns", "templates"],
+  list:   (): readonly unknown[] => ["dns", "templates", "list"],
+  detail: (id: string): readonly unknown[] => ["dns", "templates", "detail", id],
+};

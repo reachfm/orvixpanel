@@ -14,6 +14,7 @@ const navItems = [
   { to: "/",                label: "Dashboard",      end: true,  icon: <IconHome /> },
   { to: "/accounts",        label: "Accounts",       icon: <IconUsers /> },
   { to: "/domains",         label: "Domains",        icon: <IconGlobe /> },
+  { to: "/dns/zones",       label: "DNS Zones",      icon: <IconDNS /> },
   { to: "/deployments",     label: "Deployments",    icon: <IconRocket /> },
   { to: "/system-health",   label: "System Health",  icon: <IconPulse /> },
   { to: "/audit-log",       label: "Audit Log",      icon: <IconScroll /> },
@@ -91,6 +92,7 @@ function Icon({ children }: { children: ReactNode }) {
 function IconHome()     { return <Icon><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/></Icon>; }
 function IconUsers()    { return <Icon><circle cx="9" cy="8" r="3.5"/><path d="M2 21c0-3.5 3-6 7-6s7 2.5 7 6"/><circle cx="17" cy="9" r="2.5"/><path d="M22 19c0-2-1.5-3.5-4-4"/></Icon>; }
 function IconGlobe()    { return <Icon><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></Icon>; }
+function IconDNS()      { return <Icon><path d="M12 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/><path d="M12 8v8"/><path d="M8 12h8"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M12 2v2"/></Icon>; }
 function IconRocket()   { return <Icon><path d="M14 4c4 0 6 2 6 6-1 3-4 6-7 8l-4-4c2-3 5-6 8-7"/><path d="M9 15l-4 4-1-1 4-4"/><path d="M14 4l-2 2 4 4 2-2"/></Icon>; }
 function IconPulse()    { return <Icon><path d="M3 12h4l2-6 4 12 2-6h6"/></Icon>; }
 function IconScroll()   { return <Icon><path d="M5 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></Icon>; }
