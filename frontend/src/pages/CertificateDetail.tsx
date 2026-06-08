@@ -21,7 +21,6 @@ import {
   getCertificateEvents,
   renewCertificate,
   deleteCertificate,
-  type SSLCertificate,
   type SSLEvent,
 } from "@/lib/api/ssl";
 
@@ -52,7 +51,7 @@ function getEventTypeTone(eventType: string): "success" | "warning" | "danger" |
 }
 
 export function CertificateDetailPage() {
-  const { id } = useParams({ from: "/ssl/certificates/$id" });
+  const { id } = useParams({ from: "/app/ssl/certificates/$id" });
   const navigate = useNavigate();
   const qc = useQueryClient();
 

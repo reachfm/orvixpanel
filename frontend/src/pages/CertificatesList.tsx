@@ -27,6 +27,8 @@ import {
   deleteCertificate,
   type SSLCertificate,
   type SSLCertStatus,
+  type IssueCertificateRequest,
+  type SSLProvider,
 } from "@/lib/api/ssl";
 
 const PAGE_SIZE = 20;
@@ -74,7 +76,7 @@ export function CertificatesListPage() {
   // Issue form state
   const [newCertDomain, setNewCertDomain] = useState("");
   const [newCertSANs, setNewCertSANs] = useState("");
-  const [newCertProvider, setNewCertProvider] = useState("letsencrypt");
+  const [newCertProvider, setNewCertProvider] = useState<SSLProvider>("letsencrypt");
   const [newCertAutoRenew, setNewCertAutoRenew] = useState(true);
 
   // Import form state
@@ -93,7 +95,7 @@ export function CertificatesListPage() {
 
   // Issue mutation
   const issueMutation = useMutation({
-    mutationFn: (body: { domain: string; san_names?: string[]; provider?: string; auto_renew?: boolean }) =>
+    mutationFn: (body: IssueCertificateRequest) =>
       issueCertificate(body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: sslKeys.all });
@@ -404,7 +406,7 @@ export function CertificatesListPage() {
             <label className="block text-sm font-medium mb-1">Provider</label>
             <Select
               value={newCertProvider}
-              onChange={(e) => setNewCertProvider(e.target.value)}
+              onChange={(e) => setNewCertProvider(e.target.value as SSLProvider)}
             >
               <option value="letsencrypt">Let's Encrypt</option>
               <option value="zerossl">ZeroSSL</option>
