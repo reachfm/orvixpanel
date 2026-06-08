@@ -41,13 +41,21 @@ export function license(): Promise<License> {
 }
 
 export interface LicenseRenewal {
-  tier: string;
-  expires_at: string;
-  days_remaining: number;
-  grace_days: number;
-  status: "active" | "grace" | "expired";
-  // The handler also returns contact + sign URLs when available; we
-  // keep them loose to avoid lock-in on the renewal-info shape.
+  // Present when license is loaded
+  loaded: boolean;
+  tier?: string;
+  expires_at?: string;
+  days_remaining?: number;
+  grace_days?: number;
+  status?: "active" | "grace" | "expired";
+  mode?: "active" | "grace" | "locked";
+  licensed_to?: string;
+  issued_at?: string;
+  grace_ends_at?: string;
+  days_until_locked?: number;
+  max_servers?: number;
+  feature_count?: number;
+  // Additional fields accepted loosely
   [key: string]: unknown;
 }
 export function licenseRenewal(): Promise<LicenseRenewal> {

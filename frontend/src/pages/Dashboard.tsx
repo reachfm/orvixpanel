@@ -136,10 +136,10 @@ export function DashboardPage() {
         />
         <StatusCard
           label="License"
-          value={lic.isLoading ? <Spinner size={18} /> : safeUpper(lic.data?.tier) || "—"}
-          tone={lic.data?.status === "active" ? "success" : lic.data?.status === "grace" ? "warning" : "danger"}
-          badge={lic.data?.status ?? "—"}
-          subtitle={lic.data ? `${lic.data.days_remaining ?? 0}d remaining` : undefined}
+          value={lic.isLoading ? <Spinner size={18} /> : lic.data?.loaded === false ? "NO LICENSE" : safeUpper(lic.data?.tier) || "—"}
+          tone={lic.data?.loaded === false ? "danger" : lic.data?.status === "active" ? "success" : lic.data?.status === "grace" ? "warning" : "danger"}
+          badge={lic.data?.loaded === false ? "LOCKED" : lic.data?.mode ?? lic.data?.status ?? "—"}
+          subtitle={lic.data?.loaded === false ? "Configure license" : lic.data ? `${lic.data.days_remaining ?? 0}d remaining` : undefined}
         />
         <StatusCard
           label="Uptime"
