@@ -241,7 +241,7 @@ func runUpdate(args []string) int {
 
 	// Install
 	fmt.Println("==> Installing update...")
-	installResult, err := update.Install(result.BinaryPath)
+	installResult, err := update.Install(result.BinaryPath, result.Channel)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Installation failed: %v\n", err)
 		fmt.Println("Attempting rollback...")

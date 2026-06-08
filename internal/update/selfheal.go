@@ -283,9 +283,18 @@ func reloadSystemd() error {
 
 // VerifyHealth verifies the service is healthy after restart.
 func VerifyHealth() error {
+	// Get the health endpoint from runtime config
+	runtimeCfg, err := ReadRuntimeConfig()
+	var endpoint string
+	if err != nil {
+		endpoint = "http://localhost:8080/healthz" // Fallback
+	} else {
+		endpoint = runtimeCfg.HealthEndpoint()
+	}
+
 	maxAttempts := 10
 	for i := 0; i < maxAttempts; i++ {
-		if err := checkHealthEndpoint(); err == nil {
+		if err := checkHealthEndpoint(endpoint); err == nil {
 			log.Info().Msg("Health check passed")
 			return nil
 		}
@@ -304,10 +313,9 @@ func VerifyHealth() error {
 	return fmt.Errorf("service failed to become healthy after %d attempts", maxAttempts)
 }
 
-// checkHealthEndpoint checks the /healthz endpoint.
-func checkHealthEndpoint() error {
-	// Try localhost first
-	cmd := exec.Command("curl", "-sf", "-m", "2", "http://localhost:8080/healthz")
+// checkHealthEndpoint checks the /healthz endpoint at the given URL.
+func checkHealthEndpoint(endpoint string) error {
+	cmd := exec.Command("curl", "-sf", "-m", "2", endpoint)
 	cmd.Stdout = &bytes.Buffer{}
 	cmd.Stderr = &bytes.Buffer{}
 	return cmd.Run()

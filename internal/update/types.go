@@ -15,9 +15,11 @@
 package update
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -212,4 +214,232 @@ func IsInstalled() bool {
 		return true
 	}
 	return false
+}
+
+// RuntimeConfig holds runtime configuration discovered from env file.
+type RuntimeConfig struct {
+	BindAddr       string // e.g., "0.0.0.0:8080" or "0.0.0.0:8443"
+	DBPath         string // Database file path
+	DataDir        string // Data directory
+	LogDir         string // Log directory
+	FrontendDist   string // Frontend dist path
+	ServerSecret   string // Server secret key (redacted)
+	UpdateChannel  Channel // Current update channel
+}
+
+// ReadRuntimeConfig reads configuration from the environment file.
+func ReadRuntimeConfig() (*RuntimeConfig, error) {
+	p := GetInstallPaths()
+	cfg := &RuntimeConfig{}
+
+	// Read env file
+	data, err := os.ReadFile(p.EnvFile)
+	if err != nil {
+		return nil, fmt.Errorf("read env file: %w", err)
+	}
+
+	// Parse env vars
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:eq])
+		value := strings.TrimSpace(line[eq+1:])
+
+		switch key {
+		case "ORVIX_BIND":
+			cfg.BindAddr = value
+		case "ORVIX_PORT":
+			// Support legacy ORVIX_PORT variable
+			if cfg.BindAddr == "" {
+				cfg.BindAddr = "0.0.0.0:" + value
+			}
+		case "ORVIX_DB_PATH":
+			cfg.DBPath = value
+		case "ORVIX_DATA_DIR":
+			cfg.DataDir = value
+		case "ORVIX_LOG_DIR":
+			cfg.LogDir = value
+		case "ORVIX_FRONTEND_DIST":
+			cfg.FrontendDist = value
+		case "ORVIX_SERVER_SECRET_KEY":
+			cfg.ServerSecret = value
+		case "ORVIX_UPDATE_CHANNEL":
+			cfg.UpdateChannel = Channel(value)
+		}
+	}
+
+	// Apply defaults if not set
+	if cfg.BindAddr == "" {
+		cfg.BindAddr = "0.0.0.0:8080" // Default
+	}
+	if cfg.DBPath == "" {
+		cfg.DBPath = filepath.Join(p.Var, "orvixpanel.db")
+	}
+	if cfg.DataDir == "" {
+		cfg.DataDir = p.Var
+	}
+	if cfg.LogDir == "" {
+		cfg.LogDir = p.Log
+	}
+	if cfg.FrontendDist == "" {
+		cfg.FrontendDist = filepath.Join(p.Var, "www", "orvixpanel")
+	}
+	if cfg.UpdateChannel == "" {
+		cfg.UpdateChannel = ChannelStable
+	}
+
+	return cfg, nil
+}
+
+// HealthEndpoint returns the health check URL based on runtime config.
+func (r *RuntimeConfig) HealthEndpoint() string {
+	// Remove any protocol prefix and extract host:port
+	addr := r.BindAddr
+	if len(addr) > 8 && addr[:7] == "http://" {
+		addr = addr[7:]
+	} else if len(addr) > 8 && addr[:8] == "https://" {
+		addr = addr[8:]
+	}
+	return "http://" + addr + "/healthz"
+}
+
+// ReadyEndpoint returns the ready check URL based on runtime config.
+func (r *RuntimeConfig) ReadyEndpoint() string {
+	addr := r.BindAddr
+	if len(addr) > 8 && addr[:7] == "http://" {
+		addr = addr[7:]
+	} else if len(addr) > 8 && addr[:8] == "https://" {
+		addr = addr[8:]
+	}
+	return "http://" + addr + "/readyz"
+}
+
+// UpdateHistory represents a record of an update operation.
+type UpdateHistory struct {
+	ID              string    `json:"id"`
+	FromVersion     Version   `json:"from_version"`
+	ToVersion       Version   `json:"to_version"`
+	Timestamp       time.Time `json:"timestamp"`
+	Channel         Channel   `json:"channel"`
+	Result          string    `json:"result"` // "success", "failed", "rolled_back"
+	BackupID        string    `json:"backup_id,omitempty"`
+	RollbackBackupID string   `json:"rollback_backup_id,omitempty"`
+	ErrorMessage    string    `json:"error_message,omitempty"`
+	Duration        int64     `json:"duration_seconds"`
+}
+
+// GetUpdateHistory reads update history from the history file.
+func GetUpdateHistory() ([]UpdateHistory, error) {
+	p := GetInstallPaths()
+	historyFile := filepath.Join(p.Var, "update_history.json")
+
+	data, err := os.ReadFile(historyFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []UpdateHistory{}, nil
+		}
+		return nil, fmt.Errorf("read history: %w", err)
+	}
+
+	var history []UpdateHistory
+	if err := json.Unmarshal(data, &history); err != nil {
+		return nil, fmt.Errorf("parse history: %w", err)
+	}
+
+	return history, nil
+}
+
+// SaveUpdateHistory writes update history to the history file.
+func SaveUpdateHistory(history []UpdateHistory) error {
+	p := GetInstallPaths()
+	historyFile := filepath.Join(p.Var, "update_history.json")
+
+	data, err := json.MarshalIndent(history, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal history: %w", err)
+	}
+
+	return os.WriteFile(historyFile, data, 0o644)
+}
+
+// AddUpdateHistoryEntry adds a new entry to the update history.
+func AddUpdateHistoryEntry(entry UpdateHistory) error {
+	history, err := GetUpdateHistory()
+	if err != nil {
+		history = []UpdateHistory{}
+	}
+
+	history = append(history, entry)
+
+	// Keep only last 100 entries
+	if len(history) > 100 {
+		history = history[len(history)-100:]
+	}
+
+	return SaveUpdateHistory(history)
+}
+
+// InstalledVersion returns the currently installed version from VERSION file.
+func InstalledVersion() Version {
+	p := GetInstallPaths()
+	versionFile := filepath.Join(p.Base, "VERSION")
+
+	data, err := os.ReadFile(versionFile)
+	if err != nil {
+		return Version{}
+	}
+
+	var v Version
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "tag=") {
+			v.Tag = strings.TrimPrefix(line, "tag=")
+		} else if strings.HasPrefix(line, "commit=") {
+			v.Commit = strings.TrimPrefix(line, "commit=")
+		} else if strings.HasPrefix(line, "date=") {
+			v.Date = strings.TrimPrefix(line, "date=")
+		} else if strings.HasPrefix(line, "built=") {
+			// Parse build time
+			builtStr := strings.TrimPrefix(line, "built=")
+			if _, err := time.Parse(time.RFC3339, builtStr); err == nil {
+				v.Date = builtStr
+			}
+		} else if strings.HasPrefix(line, "channel=") {
+			// Store channel info in Dirty field as indicator
+			channel := strings.TrimPrefix(line, "channel=")
+			if channel == "preview" {
+				v.Dirty = true // Reusing Dirty as preview indicator
+			}
+		}
+	}
+
+	return v
+}
+
+// InstalledChannel returns the channel the current version was installed from.
+func InstalledChannel() Channel {
+	p := GetInstallPaths()
+	versionFile := filepath.Join(p.Base, "VERSION")
+
+	data, err := os.ReadFile(versionFile)
+	if err != nil {
+		return ChannelStable
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "channel=") {
+			channel := strings.TrimPrefix(line, "channel=")
+			return Channel(channel)
+		}
+	}
+
+	return ChannelStable
 }

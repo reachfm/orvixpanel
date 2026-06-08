@@ -54,6 +54,7 @@ import { MailAliasesPage } from "@/pages/MailAliases";
 import { MailForwardersPage } from "@/pages/MailForwarders";
 import { MailAuditLogPage } from "@/pages/MailAuditLog";
 import { MailStatsPage } from "@/pages/MailStats";
+import { UpdateCenterPage } from "@/pages/UpdateCenter";
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
@@ -119,6 +120,12 @@ const systemHealthRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: "/system-health",
   component: SystemHealthPage,
+});
+
+const updateCenterRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/updates",
+  component: UpdateCenterPage,
 });
 
 const auditLogRoute = createRoute({
@@ -226,6 +233,7 @@ const routeTree = rootRoute.addChildren([
     domainsListRoute,
     deploymentsListRoute,
     systemHealthRoute,
+    updateCenterRoute,
     auditLogRoute,
     settingsRoute,
     dnsZonesListRoute,

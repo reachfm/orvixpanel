@@ -40,6 +40,13 @@ export const systemKeys = {
   licenseRenewal: (): readonly unknown[] => ["system", "license-renewal"],
 };
 
+export const updateKeys = {
+  all:     (): readonly unknown[] => ["update"],
+  status:  (): readonly unknown[] => ["update", "status"],
+  history: (): readonly unknown[] => ["update", "history"],
+  health:  (): readonly unknown[] => ["update", "health"],
+};
+
 export const auditKeys = {
   all:    (): readonly unknown[] => ["audit"],
   list:   (limit: number): readonly unknown[] => ["audit", "list", limit],

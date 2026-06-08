@@ -28,6 +28,7 @@ type BuildResult struct {
 	Success    bool
 	BinaryPath string
 	Version    Version
+	Channel    Channel // Update channel used
 	BuildTime  time.Time
 	Error      error
 	Warnings   []string
@@ -37,6 +38,7 @@ type BuildResult struct {
 func Build(cfg *BuildConfig) (*BuildResult, error) {
 	result := &BuildResult{
 		BuildTime: time.Now().UTC(),
+		Channel:   cfg.Channel,
 	}
 
 	p := GetInstallPaths()
@@ -406,7 +408,7 @@ type InstallResult struct {
 }
 
 // Install installs the built binary and restarts the service.
-func Install(binaryPath string) (*InstallResult, error) {
+func Install(binaryPath string, channel Channel) (*InstallResult, error) {
 	result := &InstallResult{BinaryPath: binaryPath}
 
 	p := GetInstallPaths()
@@ -463,11 +465,11 @@ func Install(binaryPath string) (*InstallResult, error) {
 		log.Warn().Err(err).Msg("systemd daemon-reload failed (non-critical)")
 	}
 
-	// Step 6: Save version file
+	// Step 6: Save version file with channel
 	versionInfo, _ := getVersionInfo(filepath.Dir(installPath))
 	versionFile := filepath.Join(p.Base, "VERSION")
-	versionContent := fmt.Sprintf("tag=%s\ncommit=%s\ndate=%s\nbuilt=%s\n",
-		versionInfo.Tag, versionInfo.Commit, versionInfo.Date, time.Now().UTC().Format(time.RFC3339))
+	versionContent := fmt.Sprintf("tag=%s\ncommit=%s\ndate=%s\nbuilt=%s\nchannel=%s\n",
+		versionInfo.Tag, versionInfo.Commit, versionInfo.Date, time.Now().UTC().Format(time.RFC3339), channel)
 	os.WriteFile(versionFile, []byte(versionContent), 0o644)
 
 	// Step 7: Start service

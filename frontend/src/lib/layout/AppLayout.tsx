@@ -30,6 +30,7 @@ const labelMap: Record<string, string> = {
   domains: "Domains",
   deployments: "Deployments",
   "system-health": "System Health",
+  updates: "Update Center",
   "audit-log": "Audit Log",
   settings: "Settings",
   new: "New",

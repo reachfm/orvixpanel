@@ -105,3 +105,82 @@ export interface AuditVerifyResult {
 export function verifyAudit(): Promise<AuditVerifyResult> {
   return request(`/api/v1/admin/audit-log/verify`, { method: "POST" });
 }
+
+// --- update manager ----------------------------------------------------
+
+export interface UpdateStatus {
+  current_version: string;
+  current_commit: string;
+  build_date: string;
+  channel: string;
+  health_endpoint: string;
+  ready_endpoint: string;
+  update_check_enabled: boolean;
+  auto_update_enabled: boolean;
+  update_history: UpdateHistoryEntry[];
+}
+
+export interface UpdateHistoryEntry {
+  id: string;
+  from_version: { tag: string; commit: string };
+  to_version: { tag: string; commit: string };
+  timestamp: string;
+  channel: string;
+  result: "success" | "failed" | "rolled_back" | "in_progress";
+  backup_id?: string;
+  rollback_backup_id?: string;
+  error_message?: string;
+  duration_seconds: number;
+}
+
+export interface UpdateCheckResult {
+  update_available: boolean;
+  current_version: string;
+  latest_version: string;
+  channel: string;
+}
+
+export interface PreflightCheck {
+  name: string;
+  status: "pass" | "warn" | "fail" | "skip" | "unknown";
+  message: string;
+  details?: string;
+  suggestions?: string[];
+}
+
+export interface SystemHealthResult {
+  checks: PreflightCheck[];
+}
+
+export function updateStatus(): Promise<UpdateStatus> {
+  return request("/api/v1/admin/update/status");
+}
+
+export function checkForUpdates(channel = "stable"): Promise<UpdateCheckResult> {
+  return request(`/api/v1/admin/update/check?channel=${channel}`, { method: "POST" });
+}
+
+export function installUpdate(channel = "stable"): Promise<{ status: string; history_id: string; message: string }> {
+  return request("/api/v1/admin/update/install", { method: "POST", body: { channel } });
+}
+
+export function rollbackUpdate(backupId?: string): Promise<{ status: string; from_version: string; to_version: string; backup_id: string }> {
+  const path = backupId ? `/api/v1/admin/update/rollback/${backupId}` : "/api/v1/admin/update/rollback";
+  return request(path, { method: "POST" });
+}
+
+export function getUpdateHistory(): Promise<{ history: UpdateHistoryEntry[] }> {
+  return request("/api/v1/admin/update/history");
+}
+
+export function enableScheduler(): Promise<{ status: string; message: string }> {
+  return request("/api/v1/admin/update/scheduler/enable", { method: "POST" });
+}
+
+export function disableScheduler(): Promise<{ status: string; message: string }> {
+  return request("/api/v1/admin/update/scheduler/disable", { method: "POST" });
+}
+
+export function systemHealth(): Promise<SystemHealthResult> {
+  return request("/api/v1/admin/system/health");
+}

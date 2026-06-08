@@ -26,6 +26,10 @@ func PreflightChecks(cfg *UpdateConfig) ([]PreflightCheck, error) {
 		checkEnvFile(),
 		checkNginxConfig(),
 		checkExistingInstall(),
+		// v0.7.2: Runtime storage verification
+		checkRuntimeStorage(),
+		checkRuntimeHealth(),
+		checkRuntimeVersion(),
 	}
 
 	// Add suggestions for failing checks
@@ -587,4 +591,143 @@ func addSuggestions(c *PreflightCheck) {
 			"Run 'orvixpanel doctor' for more diagnostics",
 		}
 	}
+}
+
+// checkRuntimeStorage verifies runtime storage directories from env file.
+func checkRuntimeStorage() PreflightCheck {
+	// Try to read runtime config
+	runtimeCfg, err := ReadRuntimeConfig()
+	if err != nil {
+		// Fall back to default paths
+		p := GetInstallPaths()
+		return checkRuntimeStoragePaths(p.Var, p.Log, p.Backup, filepath.Join(p.Var, "orvixpanel.db"))
+	}
+
+	return checkRuntimeStoragePaths(runtimeCfg.DataDir, runtimeCfg.LogDir, GetInstallPaths().Backup, runtimeCfg.DBPath)
+}
+
+func checkRuntimeStoragePaths(dataDir, logDir, backupDir, dbPath string) PreflightCheck {
+	check := PreflightCheck{Name: "Runtime Storage"}
+	var missing []string
+	var warnings []string
+
+	// Check data directory
+	if _, err := os.Stat(dataDir); err != nil {
+		missing = append(missing, "data directory")
+	}
+
+	// Check log directory
+	if _, err := os.Stat(logDir); err != nil {
+		missing = append(missing, "log directory")
+	}
+
+	// Check backup directory
+	if _, err := os.Stat(backupDir); err != nil {
+		missing = append(missing, "backup directory")
+	}
+
+	// Check database file
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		warnings = append(warnings, "database file not found (will be created on startup)")
+	}
+
+	if len(missing) > 0 {
+		check.Status = CheckFail
+		check.Message = fmt.Sprintf("Missing required directories: %s", strings.Join(missing, ", "))
+		check.Suggestions = []string{
+			"Ensure OrvixPanel was installed correctly",
+			"Check that installation script ran successfully",
+		}
+		return check
+	}
+
+	if len(warnings) > 0 {
+		check.Status = CheckWarn
+		check.Message = "Runtime storage partially configured"
+		check.Details = strings.Join(warnings, "; ")
+		return check
+	}
+
+	check.Status = CheckPass
+	check.Message = "Runtime storage configured correctly"
+	return check
+}
+
+// checkRuntimeHealth verifies the service is responding at the correct port.
+func checkRuntimeHealth() PreflightCheck {
+	// Get runtime config for dynamic port detection
+	runtimeCfg, err := ReadRuntimeConfig()
+	if err != nil {
+		// Fall back to default port 8080
+		return checkHealthAtPort("0.0.0.0:8080")
+	}
+
+	return checkHealthAtEndpoint(runtimeCfg.HealthEndpoint())
+}
+
+func checkHealthAtPort(port string) PreflightCheck {
+	return checkHealthAtEndpoint("http://" + port + "/healthz")
+}
+
+func checkHealthAtEndpoint(endpoint string) PreflightCheck {
+	check := PreflightCheck{Name: "Service Health"}
+
+	// Check if service is running
+	cmd := exec.Command("systemctl", "is-active", "orvixpanel")
+	cmd.Stdout = &bytes.Buffer{}
+	cmd.Stderr = &bytes.Buffer{}
+	output, _ := cmd.Output()
+	isActive := strings.TrimSpace(string(output)) == "active"
+
+	if !isActive {
+		check.Status = CheckFail
+		check.Message = "orvixpanel service is not running"
+		check.Suggestions = []string{
+			"Start the service: systemctl start orvixpanel",
+			"Check logs: journalctl -u orvixpanel -n 50",
+		}
+		return check
+	}
+
+	// Check health endpoint
+	cmd = exec.Command("curl", "-sf", "-m", "3", endpoint)
+	cmd.Stdout = &bytes.Buffer{}
+	cmd.Stderr = &bytes.Buffer{}
+	if err := cmd.Run(); err != nil {
+		check.Status = CheckWarn
+		check.Message = fmt.Sprintf("Service running but health endpoint not responding at %s", endpoint)
+		check.Details = "Service may be starting up or endpoint is misconfigured"
+		check.Suggestions = []string{
+			"Wait for service to fully start",
+			"Check service logs: journalctl -u orvixpanel -f",
+		}
+		return check
+	}
+
+	check.Status = CheckPass
+	check.Message = "Service health check passed"
+	return check
+}
+
+// checkRuntimeVersion displays the currently installed version.
+func checkRuntimeVersion() PreflightCheck {
+	check := PreflightCheck{Name: "Installed Version"}
+
+	v := InstalledVersion()
+	if v.Tag == "" {
+		check.Status = CheckWarn
+		check.Message = "No version information found"
+		check.Details = "VERSION file not found or empty"
+		return check
+	}
+
+	channel := InstalledChannel()
+	check.Status = CheckPass
+	check.Message = fmt.Sprintf("v%s (commit: %s, channel: %s)", v.Tag, v.Commit[:8], channel)
+
+	if v.Date != "" {
+		check.Details = fmt.Sprintf("Built: %s", v.Date)
+	}
+
+	return check
 }

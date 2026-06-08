@@ -41,6 +41,17 @@ import (
 //   - /ssl/health            — Certificate health scan
 //   - /ssl/events            — SSL audit events
 //   - /ssl/dashboard         — Dashboard statistics
+//
+// v0.7.2 Autonomous Update Manager adds:
+//   - /admin/update/status        — Current update status
+//   - /admin/update/check        — Check for available updates
+//   - /admin/update/install      — Trigger update installation
+//   - /admin/update/rollback     — Rollback to previous version
+//   - /admin/update/rollback/:id — Rollback to specific backup
+//   - /admin/update/history      — Get update history
+//   - /admin/update/scheduler/enable  — Enable auto-update scheduler
+//   - /admin/update/scheduler/disable — Disable auto-update scheduler
+//   - /admin/system/health        — System health checks
 func registerV1(g fiber.Router, d Deps) {
 	g.Get("/me", v1.MeHandler).Name("auth.me")
 	g.Get("/me/quotas", quota.MeHandler(d.Quota))
@@ -151,4 +162,18 @@ func registerV1(g fiber.Router, d Deps) {
 	sslGroup.Get("/events", ssl.GetSSLEventsHandler(sslDeps)).Name("ssl.events.read")
 	sslGroup.Get("/certificates/:id/events", ssl.GetCertificateEventsHandler(sslDeps)).Name("ssl.events.read")
 	sslGroup.Get("/dashboard", ssl.GetDashboardStatsHandler(sslDeps)).Name("ssl.dashboard.read")
+
+	// Update Manager (v0.7.2) — Admin-only routes for update management.
+	updateAdmin := g.Group("/admin/update", middleware.RequirePermission("admin", "*"))
+	updateAdmin.Get("/status", v1.UpdateStatus).Name("update.status")
+	updateAdmin.Post("/check", v1.UpdateCheck).Name("update.check")
+	updateAdmin.Post("/install", v1.UpdateInstall).Name("update.install")
+	updateAdmin.Post("/rollback", v1.UpdateRollback).Name("update.rollback")
+	updateAdmin.Post("/rollback/:id", v1.UpdateRollback).Name("update.rollback")
+	updateAdmin.Get("/history", v1.UpdateHistory).Name("update.history")
+	updateAdmin.Post("/scheduler/enable", v1.UpdateSchedulerEnable).Name("update.scheduler")
+	updateAdmin.Post("/scheduler/disable", v1.UpdateSchedulerDisable).Name("update.scheduler")
+
+	// System health checks.
+	g.Get("/admin/system/health", v1.SystemHealth).Name("system.health")
 }
