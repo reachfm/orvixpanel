@@ -117,10 +117,42 @@ backup:
 
 ## Verification Results
 
-- **Go Build**: ✅ Compiles without errors
-- **Go Tests**: ✅ 14/14 tests passing
-- **Frontend Typecheck**: ✅ No TypeScript errors
+### Build Verification
+- **Go Build**: ✅ `/workspace/orvixpanel` (22MB ELF 64-bit executable)
 - **Frontend Build**: ✅ Built successfully (414KB JS, 25KB CSS)
+
+### Unit Test Results
+- **Go Unit Tests**: ✅ 14/14 tests passing
+  ```
+  === RUN   TestStorageLocal → PASS
+  === RUN   TestStorageFactory → PASS
+  === RUN   TestDefaultConfig → PASS
+  === RUN   TestBackupManagerCreateFileBackup → PASS
+  === RUN   TestBackupManagerVerifyBackup → PASS
+  === RUN   TestRestoreManagerStaging → PASS
+  === RUN   TestBackupError → PASS
+  === RUN   TestAuditEntry → PASS
+  === RUN   TestGenerateID → PASS
+  === RUN   TestBackupJobModel → PASS
+  === RUN   TestBackupFileModel → PASS
+  === RUN   TestRestorePointModel → PASS
+  === RUN   TestBackupScheduleModel → PASS
+  === RUN   TestBackupConfigModel → PASS
+  ```
+- **Frontend Tests**: ✅ 25/25 tests passing (3 test files)
+
+### Type Checking
+- **Go vet**: ✅ No issues
+- **TypeScript Typecheck**: ✅ No TypeScript errors
+
+### Smoke Test Script
+Located at `/workspace/scripts/smoke-backup-local.sh` for operational verification:
+- Creates real tar.gz archives with SHA256 checksums
+- Tests staging directory and rollback mechanism
+- Verifies tenant isolation in handler queries
+- Tests scheduler and retention policy
+
+### Tag: v0.6.0-backup-preview
 
 ## Rules Enforced
 
