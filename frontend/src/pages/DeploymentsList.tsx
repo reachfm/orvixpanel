@@ -14,6 +14,7 @@ import { Table, type Column } from "@/lib/ui/Table";
 import { StatusPill } from "@/lib/ui/StatusPill";
 import { Spinner, ErrorState, EmptyState } from "@/lib/ui/Feedback";
 import { accountKeys, deploymentKeys } from "@/lib/query/keys";
+import { formatDate, formatBytes } from "@/lib/utils";
 import { listAccounts } from "@/lib/api/accounts";
 import { listDeployments, type Deployment } from "@/lib/api/deployments";
 
@@ -59,7 +60,7 @@ export function DeploymentsListPage() {
         : <span className="text-ink-3">archived</span>,
     },
     { key: "size",    header: "Size",    cell: (d) => <span className="font-mono text-xs">{formatBytes(d.size_bytes)}</span> },
-    { key: "modified", header: "Modified", cell: (d) => <span className="font-mono text-xs">{new Date(d.modified_at).toLocaleString()}</span> },
+    { key: "modified", header: "Modified", cell: (d) => <span className="font-mono text-xs text-ink-2">{formatDate(d.modified_at)}</span> },
   ];
 
   return (
@@ -96,11 +97,4 @@ export function DeploymentsListPage() {
       </Card>
     </div>
   );
-}
-
-function formatBytes(n: number): string {
-  if (!n) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1);
-  return `${(n / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }

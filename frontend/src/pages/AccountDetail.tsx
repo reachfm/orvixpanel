@@ -15,11 +15,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader } from "@/lib/ui/Card";
 import { PageHeader } from "@/lib/ui/PageHeader";
 import { Button } from "@/lib/ui/Button";
+import { Modal } from "@/lib/ui/Modal";
 import { Tabs } from "@/lib/ui/Tabs";
 import { StatusPill } from "@/lib/ui/StatusPill";
 import { Spinner, ErrorState } from "@/lib/ui/Feedback";
 import { Table, type Column } from "@/lib/ui/Table";
 import { accountKeys, domainKeys, deploymentKeys } from "@/lib/query/keys";
+import { formatDate, formatBytes } from "@/lib/utils";
 import { getAccount, accountUsage, suspendAccount, unsuspendAccount, deleteAccount } from "@/lib/api/accounts";
 import { listDomains, deleteDomain, type Domain } from "@/lib/api/domains";
 import { listDeployments, type Deployment } from "@/lib/api/deployments";
@@ -29,6 +31,7 @@ export function AccountDetailPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [tab, setTab] = useState("overview");
+  const [deleteModal, setDeleteModal] = useState(false);
 
   const q = useQuery({ queryKey: accountKeys.detail(id), queryFn: () => getAccount(id) });
   const doms = useQuery({ queryKey: domainKeys.byAccount(id), queryFn: () => listDomains(id) });
@@ -52,6 +55,8 @@ export function AccountDetailPage() {
     },
   });
 
+  const isPending = suspend.isPending || unsuspend.isPending || del.isPending;
+
   if (q.isLoading) {
     return <div className="flex min-h-[40vh] items-center justify-center"><Spinner size={28} /></div>;
   }
@@ -74,11 +79,7 @@ export function AccountDetailPage() {
       <Button
         variant="danger"
         loading={del.isPending}
-        onClick={() => {
-          if (window.confirm(`Delete account "${a.username}"? This also deletes the system user and all domains.`)) {
-            del.mutate();
-          }
-        }}
+        onClick={() => setDeleteModal(true)}
       >
         Delete
       </Button>
@@ -125,7 +126,7 @@ export function AccountDetailPage() {
                     <Field label="Disk quota" value={`${a.disk_quota_mb} MB`} />
                     <Field label="Disk used"  value={a.disk_used_mb != null ? `${a.disk_used_mb} MB` : "—"} />
                     <Field label="Bandwidth" value={`${a.bandwidth_gb} GB`} />
-                    <Field label="Created"   value={new Date(a.created_at).toLocaleString()} />
+                    <Field label="Created"   value={formatDate(a.created_at)} />
                   </dl>
                 </Card>
                 <Card className="md:col-span-2">
@@ -152,6 +153,32 @@ export function AccountDetailPage() {
           },
         ]}
       />
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        open={deleteModal}
+        onClose={() => !isPending && setDeleteModal(false)}
+        title="Delete Account"
+        description={`Are you sure you want to delete "${a.username}"? This will permanently remove the system user and all associated domains.`}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setDeleteModal(false)} disabled={isPending}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={del.isPending}
+              onClick={() => del.mutate()}
+            >
+              Delete Account
+            </Button>
+          </>
+        }
+      >
+        <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-sm text-danger">
+          This action is irreversible and will permanently delete all data associated with this account.
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -181,16 +208,14 @@ function DomainsTab({
     { key: "name",   header: "Domain",       cell: (d) => <span className="font-mono text-xs">{d.name}</span> },
     { key: "doc",    header: "Document root", cell: (d) => <span className="font-mono text-xs">{d.document_root}</span> },
     { key: "status", header: "Status",       cell: (d) => <StatusPill tone={d.status === "active" ? "success" : "neutral"}>{d.status}</StatusPill> },
-    { key: "created", header: "Created",     cell: (d) => <span className="font-mono text-xs">{new Date(d.created_at).toLocaleString()}</span> },
+    { key: "created", header: "Created",     cell: (d) => <span className="font-mono text-xs text-ink-2">{formatDate(d.created_at)}</span> },
     {
       key: "actions", header: "", align: "right",
       cell: (d) => (
         <Button
           variant="ghost" size="sm" className="text-danger"
           loading={del.isPending}
-          onClick={() => {
-            if (window.confirm(`Delete domain "${d.name}"?`)) del.mutate(d.name);
-          }}
+          onClick={() => del.mutate(d.name)}
         >
           Delete
         </Button>
@@ -217,22 +242,15 @@ function DeploymentsTab({
     { key: "domain",     header: "Domain",      cell: (d) => <span className="font-mono text-xs">{d.domain}</span> },
     { key: "is_current", header: "Current",     cell: (d) => d.is_current ? <StatusPill tone="success">current</StatusPill> : <span className="text-ink-3">—</span> },
     { key: "size",       header: "Size",        cell: (d) => <span className="font-mono text-xs">{formatBytes(d.size_bytes)}</span> },
-    { key: "modified",   header: "Modified at", cell: (d) => <span className="font-mono text-xs">{new Date(d.modified_at).toLocaleString()}</span> },
+    { key: "modified",   header: "Modified at", cell: (d) => <span className="font-mono text-xs text-ink-2">{formatDate(d.modified_at)}</span> },
   ];
   return (
     <Card>
       <div className="mb-3 flex items-center justify-between">
-        <div className="text-sm text-ink-2">Release directories on disk. “Current” matches the document-root symlink.</div>
+        <div className="text-sm text-ink-2">Release directories on disk. "Current" matches the document-root symlink.</div>
         <Button variant="ghost" size="sm" onClick={onReload}>Refresh</Button>
       </div>
       <Table columns={columns} rows={rows} keyOf={(d) => `${d.domain}:${d.release}`} isLoading={isLoading} />
     </Card>
   );
-}
-
-function formatBytes(n: number): string {
-  if (!n) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1);
-  return `${(n / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }

@@ -16,6 +16,7 @@ import { Table, type Column } from "@/lib/ui/Table";
 import { StatusPill } from "@/lib/ui/StatusPill";
 import { EmptyState, ErrorState } from "@/lib/ui/Feedback";
 import { accountKeys, domainKeys } from "@/lib/query/keys";
+import { formatDate } from "@/lib/utils";
 import {
   listAccounts, suspendAccount, unsuspendAccount, deleteAccount,
   type Account,
@@ -164,7 +165,7 @@ export function AccountsListPage() {
     {
       key: "created",
       header: "Created",
-      cell: (a) => <span className="font-mono text-xs">{new Date(a.created_at).toLocaleString()}</span>,
+      cell: (a) => <span className="font-mono text-xs text-ink-2">{formatDate(a.created_at)}</span>,
     },
     {
       key: "actions",

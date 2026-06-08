@@ -1,6 +1,6 @@
 /**
  * DNS Zones list. Real data from the backend API.
- *
+ * Professional cPanel-style DNS zone management.
  * Routes:
  *   /dns/zones                    ZonesListPage
  *   /dns/zones/:id                ZoneDetailPage
@@ -18,8 +18,9 @@ import { Select } from "@/lib/ui/Select";
 import { Modal } from "@/lib/ui/Modal";
 import { Table, type Column } from "@/lib/ui/Table";
 import { StatusPill } from "@/lib/ui/StatusPill";
-import { EmptyState, ErrorState, LoadingState } from "@/lib/ui/Feedback";
+import { EmptyState, ErrorState, Spinner } from "@/lib/ui/Feedback";
 import { dnsZoneKeys } from "@/lib/query/keys";
+import { formatDate } from "@/lib/utils";
 import {
   listZones,
   createZone,
@@ -108,6 +109,8 @@ export function ZonesListPage() {
     });
   };
 
+  const isPending = createMutation.isPending || deleteMutation.isPending;
+
   // Table columns
   const columns: Column<DNSZone>[] = [
     {
@@ -117,7 +120,7 @@ export function ZonesListPage() {
         <Link
           to="/dns/zones/$id"
           params={{ id: zone.id }}
-          className="font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+          className="font-medium text-brand-600 hover:underline"
         >
           {zone.domain}
         </Link>
@@ -127,7 +130,7 @@ export function ZonesListPage() {
       key: "type",
       header: "Type",
       cell: (zone) => (
-        <span className="capitalize text-gray-600 dark:text-gray-400">{zone.type}</span>
+        <span className="capitalize text-ink-2">{zone.type}</span>
       ),
     },
     {
@@ -142,18 +145,19 @@ export function ZonesListPage() {
     {
       key: "records",
       header: "Records",
-      cell: () => <span className="text-gray-500">—</span>,
+      cell: () => <span className="text-ink-3">—</span>,
     },
     {
       key: "created_at",
       header: "Created",
-      cell: (zone) => new Date(zone.created_at).toLocaleDateString(),
+      cell: (zone) => <span className="font-mono text-xs text-ink-2">{formatDate(zone.created_at)}</span>,
     },
     {
       key: "actions",
-      header: "Actions",
+      header: "",
+      align: "right",
       cell: (zone) => (
-        <div className="flex items-center gap-2">
+        <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
           <Button
             variant="ghost"
             size="sm"
@@ -164,7 +168,7 @@ export function ZonesListPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="text-red-600 hover:text-red-800 dark:text-red-400"
+            className="text-danger hover:text-danger"
             onClick={() => setDeleteModal(zone)}
           >
             Delete
@@ -174,147 +178,157 @@ export function ZonesListPage() {
     },
   ];
 
-  if (q.isLoading) return <LoadingState />;
-  if (q.isError) return <ErrorState description="Failed to load zones" onRetry={() => q.refetch()} />;
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="DNS Zones"
-        description="Manage your DNS zones and records"
+        description={`${zones.length} zone${zones.length === 1 ? "" : "s"} configured`}
         actions={
-          <Button onClick={() => setCreateModalOpen(true)}>
+          <Button variant="primary" onClick={() => setCreateModalOpen(true)}>
             Create Zone
           </Button>
         }
       />
 
       {/* Filters */}
-      <Card className="p-4">
-        <div className="flex flex-wrap gap-4">
-          <div className="flex-1 min-w-[200px]">
+      <Card>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex-1">
             <Input
-              placeholder="Search zones..."
+              label="Search"
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search zones..."
             />
           </div>
-          <Select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="w-40"
-          >
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="suspended">Suspended</option>
-            <option value="pending">Pending</option>
-          </Select>
+          <div className="w-full sm:w-40">
+            <Select
+              label="Status"
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+            >
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="suspended">Suspended</option>
+              <option value="pending">Pending</option>
+            </Select>
+          </div>
         </div>
-      </Card>
 
-      {/* Table */}
-      {paginatedZones.length === 0 ? (
-        <EmptyState
-          title="No zones found"
-          description={
-            searchQuery || statusFilter !== "all"
-              ? "Try adjusting your filters"
-              : "Create your first DNS zone to get started"
-          }
-          action={
-            !searchQuery && statusFilter === "all" ? (
-              <Button onClick={() => setCreateModalOpen(true)}>Create Zone</Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <>
-          <Table<DNSZone> rows={paginatedZones} columns={columns} keyOf={(z) => z.id} />
-          {totalPages > 1 && (
-            <div className="flex justify-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage((p) => p - 1)}
-              >
-                Previous
-              </Button>
-              <span className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400">
-                Page {currentPage} of {totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage((p) => p + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          )}
-        </>
-      )}
+        {q.isError ? (
+          <ErrorState description="Failed to load zones" onRetry={() => q.refetch()} />
+        ) : q.isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Spinner size={24} />
+          </div>
+        ) : filteredZones.length === 0 ? (
+          <EmptyState
+            title={searchQuery || statusFilter !== "all" ? "No zones match your filters" : "No zones yet"}
+            description={
+              searchQuery || statusFilter !== "all"
+                ? "Try adjusting your search or filters."
+                : "Create your first DNS zone to get started."
+            }
+            action={
+              !searchQuery && statusFilter === "all" && (
+                <Button variant="primary" onClick={() => setCreateModalOpen(true)}>
+                  Create Zone
+                </Button>
+              )
+            }
+          />
+        ) : (
+          <>
+            <Table
+              rows={paginatedZones}
+              columns={columns}
+              keyOf={(z) => z.id}
+            />
+            {totalPages > 1 && (
+              <div className="mt-4 flex items-center justify-between border-t border-surface-border pt-4">
+                <div className="text-sm text-ink-3">
+                  Showing {(currentPage - 1) * PAGE_SIZE + 1} to{" "}
+                  {Math.min(currentPage * PAGE_SIZE, filteredZones.length)} of{" "}
+                  {filteredZones.length} zones
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((p) => p - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage((p) => p + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </Card>
 
       {/* Create Zone Modal */}
       <Modal
         open={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
+        onClose={() => !isPending && setCreateModalOpen(false)}
         title="Create DNS Zone"
+        description="Add a new DNS zone for domain management."
         footer={
           <>
-            <Button variant="outline" onClick={() => setCreateModalOpen(false)}>
+            <Button variant="secondary" onClick={() => setCreateModalOpen(false)} disabled={isPending}>
               Cancel
             </Button>
             <Button
+              variant="primary"
               onClick={handleCreateZone}
               disabled={!newZoneDomain.trim() || createMutation.isPending}
+              loading={createMutation.isPending}
             >
-              {createMutation.isPending ? "Creating..." : "Create"}
+              Create Zone
             </Button>
           </>
         }
       >
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Domain</label>
-            <Input
-              placeholder="example.com"
-              value={newZoneDomain}
-              onChange={(e) => setNewZoneDomain(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleCreateZone()}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Type</label>
-            <Select
-              value={newZoneType}
-              onChange={(e) => setNewZoneType(e.target.value as DNSZoneType)}
-            >
-              <option value="native">Native</option>
-              <option value="master">Master</option>
-              <option value="slave">Slave</option>
-            </Select>
-          </div>
-          {createMutation.isError && (
-            <p className="text-sm text-red-600 dark:text-red-400">
-              Failed to create zone. Please check the domain name.
-            </p>
-          )}
+          <Input
+            label="Domain"
+            placeholder="example.com"
+            value={newZoneDomain}
+            onChange={(e) => setNewZoneDomain(e.target.value)}
+            description="Enter the domain name for the DNS zone"
+          />
+          <Select
+            label="Type"
+            value={newZoneType}
+            onChange={(e) => setNewZoneType(e.target.value as DNSZoneType)}
+          >
+            <option value="native">Native</option>
+            <option value="master">Master</option>
+            <option value="slave">Slave</option>
+          </Select>
         </div>
       </Modal>
 
       {/* Delete Confirmation Modal */}
       <Modal
         open={deleteModal !== null}
-        onClose={() => setDeleteModal(null)}
+        onClose={() => !isPending && setDeleteModal(null)}
         title="Delete DNS Zone"
+        description={`Are you sure you want to delete "${deleteModal?.domain}"? This action cannot be undone.`}
         footer={
           <>
-            <Button variant="outline" onClick={() => setDeleteModal(null)}>
+            <Button variant="secondary" onClick={() => setDeleteModal(null)} disabled={isPending}>
               Cancel
             </Button>
             <Button
@@ -322,16 +336,14 @@ export function ZonesListPage() {
               onClick={() => deleteModal && deleteMutation.mutate(deleteModal.id)}
               loading={deleteMutation.isPending}
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              Delete Zone
             </Button>
           </>
         }
       >
-        <p>
-          Are you sure you want to delete the zone{" "}
-          <strong>{deleteModal?.domain}</strong>? This action cannot be undone and
-          will remove all records in this zone.
-        </p>
+        <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-sm text-danger">
+          This will permanently delete the zone and all associated DNS records.
+        </div>
       </Modal>
     </div>
   );

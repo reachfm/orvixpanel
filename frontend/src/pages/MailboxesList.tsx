@@ -1,5 +1,7 @@
 /**
- * Mailboxes List Page
+ * Mailboxes List Page — Professional mail management interface.
+ * Features: Create, suspend, reactivate, delete mailboxes with quota bars.
+ * Handles empty states, loading states, error states properly.
  */
 
 import { useState } from "react";
@@ -15,23 +17,28 @@ import {
 } from "@/lib/api/mail";
 import { Button } from "@/lib/ui/Button";
 import { Input } from "@/lib/ui/Input";
-import { Card } from "@/lib/ui/Card";
+import { Select } from "@/lib/ui/Select";
+import { Card, CardHeader } from "@/lib/ui/Card";
 import { Badge } from "@/lib/ui/Badge";
 import { Modal } from "@/lib/ui/Modal";
-import { Spinner } from "@/lib/ui/Feedback";
+import { PageHeader } from "@/lib/ui/PageHeader";
+import { Spinner, EmptyState, ErrorState } from "@/lib/ui/Feedback";
+import { Table, type Column } from "@/lib/ui/Table";
 import { formatDate, formatMB } from "@/lib/utils";
+import type { Mailbox } from "@/lib/api/mail";
 
 export function MailboxesListPage() {
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Mailbox | null>(null);
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [selectedDomain, setSelectedDomain] = useState("");
   const [quotaMB, setQuotaMB] = useState(1024);
 
   // Query mailboxes
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["mail", "mailboxes"],
     queryFn: () => listMailboxes({ page_size: 50 }),
   });
@@ -41,6 +48,9 @@ export function MailboxesListPage() {
     queryKey: ["mail", "domains"],
     queryFn: () => listDomains({ page_size: 100 }),
   });
+
+  const domains = domainsData?.domains ?? [];
+  const mailboxes = data?.mailboxes ?? [];
 
   // Create mutation
   const createMutation = useMutation({
@@ -58,6 +68,8 @@ export function MailboxesListPage() {
       setShowCreateModal(false);
       setNewEmail("");
       setNewPassword("");
+      setSelectedDomain("");
+      setQuotaMB(1024);
     },
   });
 
@@ -66,6 +78,7 @@ export function MailboxesListPage() {
     mutationFn: (id: string) => deleteMailbox(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["mail", "mailboxes"] });
+      setConfirmDelete(null);
     },
   });
 
@@ -95,307 +108,300 @@ export function MailboxesListPage() {
     },
   });
 
-  // Calculate quota percentage
-  const getQuotaPercent = (used: number, total: number) => {
-    if (total === 0) return 0;
-    return Math.round((used / total) * 100);
+  // Calculate quota percentage safely
+  const getQuotaPercent = (used?: number, total?: number) => {
+    if (!total || total === 0) return 0;
+    return Math.round(((used ?? 0) / total) * 100);
   };
 
   // Get quota color
   const getQuotaColor = (percent: number) => {
-    if (percent >= 90) return "bg-red-500";
-    if (percent >= 75) return "bg-yellow-500";
-    return "bg-blue-500";
+    if (percent >= 90) return "bg-danger";
+    if (percent >= 75) return "bg-warning";
+    return "bg-brand-500";
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Spinner />
-      </div>
-    );
-  }
+  const columns: Column<Mailbox>[] = [
+    {
+      key: "email",
+      header: "Email Address",
+      cell: (m) => (
+        <div className="font-medium text-ink-1">{m.email ?? "—"}</div>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (m) => (
+        <Badge tone={m.status === "active" ? "success" : m.status === "suspended" ? "warning" : "neutral"}>
+          {m.status ?? "unknown"}
+        </Badge>
+      ),
+    },
+    {
+      key: "quota",
+      header: "Storage",
+      cell: (m) => {
+        const used = m.quota_used_mb ?? 0;
+        const total = m.quota_mb ?? 1;
+        const percent = getQuotaPercent(used, total);
+        return (
+          <div className="w-36">
+            <div className="mb-1 flex justify-between text-xs text-ink-3">
+              <span>{formatMB(used)}</span>
+              <span>{formatMB(total)}</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
+              <div
+                className={`h-full rounded-full transition-all ${getQuotaColor(percent)}`}
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      key: "protocols",
+      header: "Protocols",
+      cell: (m) => (
+        <div className="flex flex-wrap gap-1">
+          {m.enable_imap && <Badge tone="info" size="sm">IMAP</Badge>}
+          {m.enable_pop3 && <Badge tone="info" size="sm">POP3</Badge>}
+          {m.enable_smtp && <Badge tone="info" size="sm">SMTP</Badge>}
+          {!m.enable_imap && !m.enable_pop3 && !m.enable_smtp && (
+            <span className="text-xs text-ink-3">—</span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: "created",
+      header: "Created",
+      cell: (m) => (
+        <span className="font-mono text-xs text-ink-2">{formatDate(m.created_at)}</span>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      cell: (m) => (
+        <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowPasswordModal(m.id)}
+          >
+            Password
+          </Button>
+          {m.status === "active" ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => suspendMutation.mutate(m.id)}
+            >
+              Suspend
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => reactivateMutation.mutate(m.id)}
+            >
+              Reactivate
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-danger hover:text-danger"
+            onClick={() => setConfirmDelete(m)}
+          >
+            Delete
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
-  if (error) {
-    return (
-      <div className="text-center text-red-500">
-        Failed to load mailboxes. Please try again.
-      </div>
-    );
-  }
+  const isPending = createMutation.isPending || deleteMutation.isPending || suspendMutation.isPending || reactivateMutation.isPending || passwordMutation.isPending;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Mailboxes</h1>
-          <p className="text-gray-500">
-            Manage email mailboxes for your domains
-          </p>
-        </div>
-        <Button onClick={() => setShowCreateModal(true)}>
-          Add Mailbox
-        </Button>
-      </div>
+      <PageHeader
+        title="Mailboxes"
+        description={`${mailboxes.length} mailbox${mailboxes.length === 1 ? "" : "es"} configured`}
+        actions={
+          <Button variant="primary" onClick={() => setShowCreateModal(true)}>
+            Add Mailbox
+          </Button>
+        }
+      />
 
-      {/* Mailbox List */}
       <Card>
-        {data?.mailboxes.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <p className="text-lg">No mailboxes configured</p>
-            <p className="text-sm">Add a mailbox to start receiving emails</p>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Spinner size={24} />
           </div>
+        ) : error ? (
+          <ErrorState
+            description="Failed to load mailboxes."
+            onRetry={() => refetch()}
+          />
+        ) : mailboxes.length === 0 ? (
+          <EmptyState
+            title="No mailboxes yet"
+            description="Create your first mailbox to start receiving emails."
+            action={
+              <Button variant="primary" onClick={() => setShowCreateModal(true)}>
+                Add Mailbox
+              </Button>
+            }
+          />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Email
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Quota
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Protocols
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Created
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {data?.mailboxes.map((mailbox) => {
-                  const quotaPercent = getQuotaPercent(mailbox.quota_used_mb, mailbox.quota_mb);
-                  return (
-                    <tr key={mailbox.id}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-medium text-gray-900">{mailbox.email}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge
-                          tone={
-                            mailbox.status === "active"
-                              ? "success"
-                              : mailbox.status === "suspended"
-                              ? "warning"
-                              : "neutral"
-                          }
-                        >
-                          {mailbox.status}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="w-32">
-                          <div className="flex justify-between text-xs mb-1">
-                            <span>{formatMB(mailbox.quota_used_mb)}</span>
-                            <span>{formatMB(mailbox.quota_mb)}</span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <div
-                              className={`h-2 rounded-full ${getQuotaColor(quotaPercent)}`}
-                              style={{ width: `${quotaPercent}%` }}
-                            />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex gap-1">
-                          {mailbox.enable_imap && (
-                            <Badge tone="info">IMAP</Badge>
-                          )}
-                          {mailbox.enable_pop3 && (
-                            <Badge tone="info">POP3</Badge>
-                          )}
-                          {mailbox.enable_smtp && (
-                            <Badge tone="info">SMTP</Badge>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {formatDate(mailbox.created_at)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setShowPasswordModal(mailbox.id)}
-                        >
-                          Password
-                        </Button>
-                        {mailbox.status === "active" ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => suspendMutation.mutate(mailbox.id)}
-                          >
-                            Suspend
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => reactivateMutation.mutate(mailbox.id)}
-                          >
-                            Reactivate
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            if (confirm(`Delete mailbox ${mailbox.email}?`)) {
-                              deleteMutation.mutate(mailbox.id);
-                            }
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <Table
+            columns={columns}
+            rows={mailboxes}
+            keyOf={(m) => m.id}
+          />
         )}
       </Card>
 
       {/* Create Modal */}
       <Modal
         open={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        onClose={() => !isPending && setShowCreateModal(false)}
         title="Add Mailbox"
-      >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            createMutation.mutate();
-          }}
-          className="space-y-4"
-        >
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Domain
-            </label>
-            <select
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-              value={selectedDomain}
-              onChange={(e) => setSelectedDomain(e.target.value)}
-              required
-            >
-              <option value="">Select domain...</option>
-              {domainsData?.domains.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.domain}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Username (local part)
-            </label>
-            <Input
-              type="text"
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-              placeholder="john"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Password
-            </label>
-            <Input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="Strong password"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Quota (MB)
-            </label>
-            <Input
-              type="number"
-              value={quotaMB}
-              onChange={(e) => setQuotaMB(parseInt(e.target.value) || 1024)}
-              min={100}
-              max={102400}
-            />
-          </div>
-          <div className="flex justify-end gap-2">
+        description="Create a new email mailbox for one of your domains."
+        footer={
+          <>
             <Button
-              type="button"
               variant="secondary"
               onClick={() => setShowCreateModal(false)}
+              disabled={isPending}
             >
               Cancel
             </Button>
             <Button
-              type="submit"
-              disabled={createMutation.isPending}
+              variant="primary"
+              loading={createMutation.isPending}
+              onClick={() => createMutation.mutate()}
+              disabled={!selectedDomain || !newEmail || !newPassword}
             >
-              {createMutation.isPending ? "Creating..." : "Create Mailbox"}
+              Create Mailbox
             </Button>
-          </div>
-        </form>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Select
+            label="Domain"
+            value={selectedDomain}
+            onChange={(e) => setSelectedDomain(e.target.value)}
+          >
+            <option value="">Select domain...</option>
+            {domains.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.domain}
+              </option>
+            ))}
+          </Select>
+
+          <Input
+            label="Username (local part)"
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            placeholder="john"
+            description={selectedDomain ? `Full address: ${newEmail || "username"}@${domains.find(d => d.id === selectedDomain)?.domain}` : undefined}
+          />
+
+          <Input
+            label="Password"
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="Strong password"
+          />
+
+          <Input
+            label="Quota (MB)"
+            type="number"
+            value={quotaMB}
+            onChange={(e) => setQuotaMB(parseInt(e.target.value) || 1024)}
+            min={100}
+            max={102400}
+          />
+        </div>
       </Modal>
 
       {/* Password Change Modal */}
       <Modal
         open={showPasswordModal !== null}
-        onClose={() => setShowPasswordModal(null)}
+        onClose={() => !isPending && setShowPasswordModal(null)}
         title="Change Password"
-      >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (showPasswordModal) {
-              passwordMutation.mutate({ id: showPasswordModal, password: newPassword });
-            }
-          }}
-          className="space-y-4"
-        >
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              New Password
-            </label>
-            <Input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="Strong password"
-              required
-            />
-          </div>
-          <div className="flex justify-end gap-2">
+        description="Update the password for this mailbox."
+        footer={
+          <>
             <Button
-              type="button"
               variant="secondary"
               onClick={() => setShowPasswordModal(null)}
+              disabled={isPending}
             >
               Cancel
             </Button>
             <Button
-              type="submit"
-              disabled={passwordMutation.isPending}
+              variant="primary"
+              loading={passwordMutation.isPending}
+              onClick={() => {
+                if (showPasswordModal && newPassword) {
+                  passwordMutation.mutate({ id: showPasswordModal, password: newPassword });
+                }
+              }}
+              disabled={!newPassword}
             >
-              {passwordMutation.isPending ? "Updating..." : "Update Password"}
+              Update Password
             </Button>
-          </div>
-        </form>
+          </>
+        }
+      >
+        <Input
+          label="New Password"
+          type="password"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          placeholder="Enter new password"
+        />
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        open={confirmDelete !== null}
+        onClose={() => !isPending && setConfirmDelete(null)}
+        title="Delete Mailbox"
+        description={`Are you sure you want to delete "${confirmDelete?.email}"? This action cannot be undone.`}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setConfirmDelete(null)}
+              disabled={isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={deleteMutation.isPending}
+              onClick={() => confirmDelete && deleteMutation.mutate(confirmDelete.id)}
+            >
+              Delete Mailbox
+            </Button>
+          </>
+        }
+      >
+        <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-sm text-danger">
+          This will permanently delete the mailbox and all stored emails.
+        </div>
       </Modal>
     </div>
   );

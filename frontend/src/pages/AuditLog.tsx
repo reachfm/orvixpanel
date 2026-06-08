@@ -20,6 +20,7 @@ import { Table, type Column } from "@/lib/ui/Table";
 import { StatusPill } from "@/lib/ui/StatusPill";
 import { ErrorState, EmptyState } from "@/lib/ui/Feedback";
 import { auditKeys } from "@/lib/query/keys";
+import { formatDate } from "@/lib/utils";
 import { listAudit, verifyAudit, type AuditEntry } from "@/lib/api/system";
 
 const PAGE_SIZE = 25;
@@ -88,7 +89,7 @@ export function AuditLogPage() {
       header: "When",
       cell: (e) => (
         <div className="font-mono text-xs">
-          <div>{new Date(e.timestamp).toLocaleDateString()}</div>
+          <div className="text-ink-1">{new Date(e.timestamp).toLocaleDateString()}</div>
           <div className="text-ink-3">{new Date(e.timestamp).toLocaleTimeString()}</div>
         </div>
       ),

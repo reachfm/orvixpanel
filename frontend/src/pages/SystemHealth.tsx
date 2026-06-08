@@ -10,6 +10,7 @@ import { PageHeader } from "@/lib/ui/PageHeader";
 import { StatusPill } from "@/lib/ui/StatusPill";
 import { Spinner, ErrorState } from "@/lib/ui/Feedback";
 import { systemKeys } from "@/lib/query/keys";
+import { formatDate } from "@/lib/utils";
 import { healthz, readyz, systemInfo, license, licenseRenewal } from "@/lib/api/system";
 
 interface HealthMetric {
@@ -205,7 +206,7 @@ export function SystemHealthPage() {
             <dl className="grid grid-cols-2 gap-3 text-sm">
               <Field label="Name" value={sys.data.name} />
               <Field label="Version" value={sys.data.version} />
-              <Field label="Uptime at" value={new Date(sys.data.uptime_at).toLocaleString()} />
+              <Field label="Uptime at" value={formatDate(sys.data.uptime_at)} />
               <Field label="Started" value={formatUptime(sys.data.uptime_at)} />
             </dl>
           ) : sys.isLoading ? (
@@ -238,7 +239,7 @@ export function SystemHealthPage() {
               <Field label="Max servers" value={String(lic.data?.max_servers ?? "—")} />
               <Field label="Days remaining" value={ren.data ? String(ren.data.days_remaining) : "—"} />
               <Field label="Grace days" value={ren.data ? String(ren.data.grace_days) : "—"} />
-              <Field label="Expires" value={lic.data?.expires_at ? new Date(lic.data.expires_at * 1000).toLocaleDateString() : "—"} />
+              <Field label="Expires" value={lic.data?.expires_at ? formatDate(new Date(lic.data.expires_at * 1000).toISOString()) : "—"} />
             </dl>
           )}
         </Card>

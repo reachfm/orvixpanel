@@ -1,5 +1,5 @@
 /**
- * Backups list page.
+ * Backups list page. Professional cPanel-style backup management.
  */
 
 import { useState, useMemo } from "react";
@@ -13,7 +13,8 @@ import { Select } from "@/lib/ui/Select";
 import { Modal } from "@/lib/ui/Modal";
 import { Table, type Column } from "@/lib/ui/Table";
 import { StatusPill } from "@/lib/ui/StatusPill";
-import { EmptyState, ErrorState, LoadingState } from "@/lib/ui/Feedback";
+import { EmptyState, ErrorState, Spinner } from "@/lib/ui/Feedback";
+import { formatDate, formatBytes } from "@/lib/utils";
 import {
   backupKeys,
   listBackups,
@@ -43,23 +44,6 @@ function getStatusTone(status: BackupStatus): "success" | "warning" | "danger" |
     default:
       return "neutral";
   }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "—";
-  const units = ["B", "KB", "MB", "GB"];
-  let i = 0;
-  let size = bytes;
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024;
-    i++;
-  }
-  return `${size.toFixed(1)} ${units[i]}`;
-}
-
-function formatDate(dateStr?: string): string {
-  if (!dateStr) return "—";
-  return new Date(dateStr).toLocaleString();
 }
 
 export function BackupsListPage() {
@@ -158,6 +142,8 @@ export function BackupsListPage() {
     });
   };
 
+  const isPending = createMutation.isPending || deleteMutation.isPending;
+
   // Table columns
   const columns: Column<BackupJob>[] = [
     {
@@ -165,8 +151,8 @@ export function BackupsListPage() {
       header: "Name",
       cell: (backup) => (
         <div>
-          <div className="font-medium">{backup.name || "Unnamed Backup"}</div>
-          <div className="text-xs text-gray-500">{backup.id}</div>
+          <div className="font-medium text-ink-1">{backup.name || "Unnamed Backup"}</div>
+          <div className="font-mono text-xs text-ink-3">{backup.id}</div>
         </div>
       ),
     },
@@ -174,9 +160,7 @@ export function BackupsListPage() {
       key: "type",
       header: "Type",
       cell: (backup) => (
-        <span className="capitalize text-gray-600 dark:text-gray-400">
-          {backup.type}
-        </span>
+        <span className="capitalize text-ink-2">{backup.type}</span>
       ),
     },
     {
@@ -192,45 +176,40 @@ export function BackupsListPage() {
       key: "size",
       header: "Size",
       cell: (backup) => (
-        <span className="text-gray-600 dark:text-gray-400">
-          {formatBytes(backup.file_size)}
-        </span>
+        <span className="text-ink-2">{formatBytes(backup.file_size)}</span>
       ),
     },
     {
       key: "files",
       header: "Files",
       cell: (backup) => (
-        <span className="text-gray-600 dark:text-gray-400">
-          {backup.file_count.toLocaleString()}
-        </span>
+        <span className="text-ink-2">{backup.file_count.toLocaleString()}</span>
       ),
     },
     {
       key: "created",
       header: "Created",
       cell: (backup) => (
-        <span className="text-gray-600 dark:text-gray-400">
-          {formatDate(backup.created_at)}
-        </span>
+        <span className="font-mono text-xs text-ink-2">{formatDate(backup.created_at)}</span>
       ),
     },
     {
       key: "actions",
-      header: "Actions",
+      header: "",
+      align: "right",
       cell: (backup) => (
-        <div className="flex items-center gap-2">
+        <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
           <Link
             to="/backup/$id"
             params={{ id: backup.id }}
-            className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm"
+            className="text-xs font-medium text-brand-600 hover:underline"
           >
             Details
           </Link>
           <Button
             variant="ghost"
             size="sm"
-            className="text-red-600 hover:text-red-800 dark:text-red-400"
+            className="text-danger hover:text-danger"
             onClick={() => setDeleteModal(backup)}
           >
             Delete
@@ -240,206 +219,216 @@ export function BackupsListPage() {
     },
   ];
 
-  if (q.isLoading) return <LoadingState />;
-  if (q.isError) return <ErrorState description="Failed to load backups" onRetry={() => q.refetch()} />;
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="Backups"
-        description="Manage automated and manual backups with restore capability"
+        description={`${backups.length} backup${backups.length === 1 ? "" : "s"} configured`}
         actions={
-          <Button onClick={() => setCreateModalOpen(true)}>Create Backup</Button>
+          <Button variant="primary" onClick={() => setCreateModalOpen(true)}>
+            Create Backup
+          </Button>
         }
       />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="p-4">
-          <div className="text-sm text-gray-500">Total Backups</div>
-          <div className="text-2xl font-bold">
-            {statsQ.isLoading ? "—" : statsQ.data?.total_backups ?? 0}
+        <Card>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-3">Total Backups</div>
+          <div className="mt-1.5 text-2xl font-bold text-ink-1">
+            {statsQ.isLoading ? <Spinner size={16} /> : statsQ.data?.total_backups ?? 0}
           </div>
         </Card>
-        <Card className="p-4">
-          <div className="text-sm text-gray-500">Active</div>
-          <div className="text-2xl font-bold text-green-600">
-            {statsQ.isLoading ? "—" : statsQ.data?.active_backups ?? 0}
+        <Card>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-3">Active</div>
+          <div className="mt-1.5 text-2xl font-bold text-success">
+            {statsQ.isLoading ? <Spinner size={16} /> : statsQ.data?.active_backups ?? 0}
           </div>
         </Card>
-        <Card className="p-4">
-          <div className="text-sm text-gray-500">Failed</div>
-          <div className="text-2xl font-bold text-red-600">
-            {statsQ.isLoading ? "—" : statsQ.data?.failed_backups ?? 0}
+        <Card>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-3">Failed</div>
+          <div className="mt-1.5 text-2xl font-bold text-danger">
+            {statsQ.isLoading ? <Spinner size={16} /> : statsQ.data?.failed_backups ?? 0}
           </div>
         </Card>
-        <Card className="p-4">
-          <div className="text-sm text-gray-500">Storage Used</div>
-          <div className="text-2xl font-bold">
-            {statsQ.isLoading ? "—" : `${statsQ.data?.total_storage_mb ?? 0} MB`}
+        <Card>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-3">Storage Used</div>
+          <div className="mt-1.5 text-2xl font-bold text-ink-1">
+            {statsQ.isLoading ? <Spinner size={16} /> : `${statsQ.data?.total_storage_mb ?? 0} MB`}
           </div>
         </Card>
       </div>
 
       {/* Filters */}
-      <Card className="p-4">
-        <div className="flex flex-wrap gap-4">
-          <div className="flex-1 min-w-[200px]">
+      <Card>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex-1">
             <Input
-              placeholder="Search backups..."
+              label="Search"
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search backups..."
             />
           </div>
-          <Select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="w-40"
-          >
-            <option value="all">All Status</option>
-            <option value="pending">Pending</option>
-            <option value="running">Running</option>
-            <option value="completed">Completed</option>
-            <option value="failed">Failed</option>
-          </Select>
-          <Select
-            value={typeFilter}
-            onChange={(e) => {
-              setTypeFilter(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="w-40"
-          >
-            <option value="all">All Types</option>
-            <option value="full">Full</option>
-            <option value="files">Files</option>
-            <option value="database">Database</option>
-          </Select>
+          <div className="w-full sm:w-36">
+            <Select
+              label="Status"
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+            >
+              <option value="all">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="running">Running</option>
+              <option value="completed">Completed</option>
+              <option value="failed">Failed</option>
+            </Select>
+          </div>
+          <div className="w-full sm:w-36">
+            <Select
+              label="Type"
+              value={typeFilter}
+              onChange={(e) => {
+                setTypeFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+            >
+              <option value="all">All types</option>
+              <option value="full">Full</option>
+              <option value="files">Files</option>
+              <option value="database">Database</option>
+            </Select>
+          </div>
         </div>
-      </Card>
 
-      {/* Table */}
-      {filteredBackups.length === 0 ? (
-        <EmptyState
-          title="No backups found"
-          description={
-            searchQuery || statusFilter !== "all" || typeFilter !== "all"
-              ? "Try adjusting your filters"
-              : "Create your first backup to get started"
-          }
-          action={
-            !searchQuery && statusFilter === "all" && typeFilter === "all" ? (
-              <Button onClick={() => setCreateModalOpen(true)}>Create Backup</Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <>
-          <Table<BackupJob> rows={filteredBackups} columns={columns} keyOf={(b) => b.id} />
-          {totalPages > 1 && (
-            <div className="flex justify-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage((p) => p - 1)}
-              >
-                Previous
-              </Button>
-              <span className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400">
-                Page {currentPage} of {totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage((p) => p + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          )}
-        </>
-      )}
+        {q.isError ? (
+          <ErrorState description="Failed to load backups" onRetry={() => q.refetch()} />
+        ) : q.isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Spinner size={24} />
+          </div>
+        ) : filteredBackups.length === 0 ? (
+          <EmptyState
+            title={searchQuery || statusFilter !== "all" || typeFilter !== "all" ? "No backups match your filters" : "No backups yet"}
+            description={
+              searchQuery || statusFilter !== "all" || typeFilter !== "all"
+                ? "Try adjusting your search or filters."
+                : "Create your first backup to protect your data."
+            }
+            action={
+              !searchQuery && statusFilter === "all" && typeFilter === "all" && (
+                <Button variant="primary" onClick={() => setCreateModalOpen(true)}>
+                  Create Backup
+                </Button>
+              )
+            }
+          />
+        ) : (
+          <>
+            <Table
+              rows={filteredBackups}
+              columns={columns}
+              keyOf={(b) => b.id}
+            />
+            {totalPages > 1 && (
+              <div className="mt-4 flex items-center justify-between border-t border-surface-border pt-4">
+                <div className="text-sm text-ink-3">
+                  Showing {(currentPage - 1) * PAGE_SIZE + 1} to{" "}
+                  {Math.min(currentPage * PAGE_SIZE, filteredBackups.length)} of{" "}
+                  {filteredBackups.length} backups
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((p) => p - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage((p) => p + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </Card>
 
       {/* Create Backup Modal */}
       <Modal
         open={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
+        onClose={() => !isPending && setCreateModalOpen(false)}
         title="Create Backup"
+        description="Start a new backup job for files and/or database."
         footer={
           <>
-            <Button variant="outline" onClick={() => setCreateModalOpen(false)}>
+            <Button variant="secondary" onClick={() => setCreateModalOpen(false)} disabled={isPending}>
               Cancel
             </Button>
             <Button
+              variant="primary"
               onClick={handleCreateBackup}
               disabled={createMutation.isPending}
+              loading={createMutation.isPending}
             >
-              {createMutation.isPending ? "Creating..." : "Create"}
+              Create Backup
             </Button>
           </>
         }
       >
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Backup Type *</label>
-            <Select
-              value={newBackupType}
-              onChange={(e) => setNewBackupType(e.target.value as BackupType)}
-            >
-              <option value="files">Files Only</option>
-              <option value="database">Database Only</option>
-              <option value="full">Full Backup</option>
-            </Select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Name (Optional)</label>
-            <Input
-              placeholder="My Backup"
-              value={newBackupName}
-              onChange={(e) => setNewBackupName(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Domain ID (Optional)</label>
-            <Input
-              placeholder="Domain to backup"
-              value={newBackupDomainID}
-              onChange={(e) => setNewBackupDomainID(e.target.value)}
-            />
-            <p className="mt-1 text-xs text-gray-500">Leave empty to backup all accessible data</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Retention Days</label>
-            <Input
-              type="number"
-              min={1}
-              max={365}
-              value={newBackupRetention}
-              onChange={(e) => setNewBackupRetention(parseInt(e.target.value) || 30)}
-            />
-            <p className="mt-1 text-xs text-gray-500">Backup will be automatically deleted after this period</p>
-          </div>
-          {createMutation.isError && (
-            <p className="text-sm text-red-600 dark:text-red-400">
-              Failed to create backup. Please try again.
-            </p>
-          )}
+          <Select
+            label="Backup Type *"
+            value={newBackupType}
+            onChange={(e) => setNewBackupType(e.target.value as BackupType)}
+          >
+            <option value="files">Files Only</option>
+            <option value="database">Database Only</option>
+            <option value="full">Full Backup</option>
+          </Select>
+          <Input
+            label="Name (Optional)"
+            placeholder="My Backup"
+            value={newBackupName}
+            onChange={(e) => setNewBackupName(e.target.value)}
+          />
+          <Input
+            label="Domain ID (Optional)"
+            placeholder="Domain to backup"
+            value={newBackupDomainID}
+            onChange={(e) => setNewBackupDomainID(e.target.value)}
+            description="Leave empty to backup all accessible data"
+          />
+          <Input
+            label="Retention Days"
+            type="number"
+            min={1}
+            max={365}
+            value={newBackupRetention}
+            onChange={(e) => setNewBackupRetention(parseInt(e.target.value) || 30)}
+            description="Backup will be automatically deleted after this period"
+          />
         </div>
       </Modal>
 
       {/* Delete Confirmation Modal */}
       <Modal
         open={deleteModal !== null}
-        onClose={() => setDeleteModal(null)}
+        onClose={() => !isPending && setDeleteModal(null)}
         title="Delete Backup"
+        description={`Are you sure you want to delete "${deleteModal?.name || deleteModal?.id}"?`}
         footer={
           <>
-            <Button variant="outline" onClick={() => setDeleteModal(null)}>
+            <Button variant="secondary" onClick={() => setDeleteModal(null)} disabled={isPending}>
               Cancel
             </Button>
             <Button
@@ -447,15 +436,14 @@ export function BackupsListPage() {
               onClick={() => deleteModal && deleteMutation.mutate(deleteModal.id)}
               loading={deleteMutation.isPending}
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              Delete Backup
             </Button>
           </>
         }
       >
-        <p>
-          Are you sure you want to delete backup <strong>{deleteModal?.name || deleteModal?.id}</strong>?
-          This action cannot be undone.
-        </p>
+        <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-sm text-danger">
+          This will permanently delete the backup. This action cannot be undone.
+        </div>
       </Modal>
     </div>
   );

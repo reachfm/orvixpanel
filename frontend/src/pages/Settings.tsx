@@ -17,6 +17,7 @@ import { Input } from "@/lib/ui/Input";
 import { Tabs } from "@/lib/ui/Tabs";
 import { ErrorState, LoadingState } from "@/lib/ui/Feedback";
 import { systemKeys } from "@/lib/query/keys";
+import { formatDate } from "@/lib/utils";
 import { license, licenseRenewal, uploadLicense } from "@/lib/api/system";
 import { ApiError } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/auth/store";
@@ -88,8 +89,8 @@ function LicenseSettings() {
             <Field label="Features" value={String(lic.data.features?.length ?? 0)} />
             <Field label="Max servers" value={String(lic.data.max_servers ?? "—")} />
             <Field label="Grace days" value={ren.data ? String(ren.data.grace_days) : "—"} />
-            <Field label="Issued at" value={lic.data.issued_at ? new Date(lic.data.issued_at * 1000).toLocaleString() : "—"} />
-            <Field label="Expires at" value={lic.data.expires_at ? new Date(lic.data.expires_at * 1000).toLocaleString() : "—"} />
+            <Field label="Issued at" value={lic.data.issued_at ? formatDate(new Date(lic.data.issued_at * 1000).toISOString()) : "—"} />
+            <Field label="Expires at" value={lic.data.expires_at ? formatDate(new Date(lic.data.expires_at * 1000).toISOString()) : "—"} />
             <Field label="Days remaining" value={ren.data ? String(ren.data.days_remaining) : "—"} />
           </dl>
         )}

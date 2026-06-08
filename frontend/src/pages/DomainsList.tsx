@@ -5,7 +5,7 @@
  * /api/v1/domains aggregate. The UI is honest about the count.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Card } from "@/lib/ui/Card";
 import { PageHeader } from "@/lib/ui/PageHeader";
@@ -13,9 +13,9 @@ import { Table, type Column } from "@/lib/ui/Table";
 import { StatusPill } from "@/lib/ui/StatusPill";
 import { Spinner, ErrorState, EmptyState } from "@/lib/ui/Feedback";
 import { accountKeys, domainKeys } from "@/lib/query/keys";
+import { formatDate } from "@/lib/utils";
 import { listAccounts } from "@/lib/api/accounts";
 import { listDomains, type Domain } from "@/lib/api/domains";
-import { useQueries } from "@tanstack/react-query";
 
 export function DomainsListPage() {
   const accts = useQuery({ queryKey: accountKeys.list(), queryFn: listAccounts });
@@ -61,7 +61,7 @@ export function DomainsListPage() {
     },
     {
       key: "created", header: "Created",
-      cell: (d) => <span className="font-mono text-xs">{new Date(d.created_at).toLocaleString()}</span>,
+      cell: (d) => <span className="font-mono text-xs text-ink-2">{formatDate(d.created_at)}</span>,
     },
   ];
 

@@ -1,5 +1,7 @@
 /**
- * Mail Domains List Page
+ * Mail Domains List Page — Professional mail domain management.
+ * Features: Create domains, view DNS records (SPF/DKIM/DMARC), delete domains.
+ * Handles empty states, loading states, error states properly.
  */
 
 import { useState } from "react";
@@ -10,30 +12,34 @@ import { Input } from "@/lib/ui/Input";
 import { Card } from "@/lib/ui/Card";
 import { Badge } from "@/lib/ui/Badge";
 import { Modal } from "@/lib/ui/Modal";
-import { Spinner } from "@/lib/ui/Feedback";
+import { PageHeader } from "@/lib/ui/PageHeader";
+import { Spinner, EmptyState, ErrorState } from "@/lib/ui/Feedback";
+import { Table, type Column } from "@/lib/ui/Table";
 import { formatDate } from "@/lib/utils";
+import type { MailDomain } from "@/lib/api/mail";
 
 export function MailDomainsListPage() {
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showDNSModal, setShowDNSModal] = useState<string | null>(null);
+  const [showDNSModal, setShowDNSModal] = useState<MailDomain | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<MailDomain | null>(null);
   const [newDomain, setNewDomain] = useState("");
   const [maxMailboxes, setMaxMailboxes] = useState(100);
 
   // Query domains
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["mail", "domains"],
     queryFn: () => listDomains({ page_size: 50 }),
   });
 
   // Create mutation
   const createMutation = useMutation({
-    mutationFn: (domain: string) =>
-      createDomain({ domain, max_mailboxes: maxMailboxes }),
+    mutationFn: () => createDomain({ domain: newDomain, max_mailboxes: maxMailboxes }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["mail", "domains"] });
       setShowCreateModal(false);
       setNewDomain("");
+      setMaxMailboxes(100);
     },
   });
 
@@ -42,222 +48,256 @@ export function MailDomainsListPage() {
     mutationFn: (id: string) => deleteDomain(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["mail", "domains"] });
+      setConfirmDelete(null);
     },
   });
 
   // DNS records query
-  const { data: dnsRecords } = useQuery({
-    queryKey: ["mail", "domains", showDNSModal, "dns"],
-    queryFn: () => (showDNSModal ? getDNSRecords(showDNSModal) : null),
+  const { data: dnsRecords, isLoading: dnsLoading } = useQuery({
+    queryKey: ["mail", "domains", showDNSModal?.id, "dns"],
+    queryFn: () => (showDNSModal ? getDNSRecords(showDNSModal.id) : null),
     enabled: !!showDNSModal,
   });
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Spinner />
-      </div>
-    );
-  }
+  const domains = data?.domains ?? [];
 
-  if (error) {
-    return (
-      <div className="text-center text-red-500">
-        Failed to load mail domains. Please try again.
-      </div>
-    );
-  }
+  // Parse DKIM status
+  const getDKIMStatus = (domain: MailDomain) => {
+    if (domain.dkim_public) return { label: "Configured", tone: "success" as const };
+    return { label: "Not Set", tone: "neutral" as const };
+  };
+
+  const columns: Column<MailDomain>[] = [
+    {
+      key: "domain",
+      header: "Domain",
+      cell: (d) => <div className="font-medium text-ink-1">{d.domain ?? "—"}</div>,
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (d) => (
+        <Badge tone={d.status === "active" ? "success" : "warning"}>
+          {d.status ?? "unknown"}
+        </Badge>
+      ),
+    },
+    {
+      key: "dkim",
+      header: "DKIM",
+      cell: (d) => {
+        const dk = getDKIMStatus(d);
+        return <Badge tone={dk.tone}>{dk.label}</Badge>;
+      },
+    },
+    {
+      key: "catch_all",
+      header: "Catch All",
+      cell: (d) => (
+        <span className="text-sm text-ink-2">{d.is_catch_all ? "Yes" : "No"}</span>
+      ),
+    },
+    {
+      key: "created",
+      header: "Created",
+      cell: (d) => (
+        <span className="font-mono text-xs text-ink-2">{formatDate(d.created_at)}</span>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      cell: (d) => (
+        <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowDNSModal(d)}
+          >
+            DNS Records
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-danger hover:text-danger"
+            onClick={() => setConfirmDelete(d)}
+          >
+            Delete
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
+  const isPending = createMutation.isPending || deleteMutation.isPending;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Mail Domains</h1>
-          <p className="text-gray-500">
-            Manage mail domains, DNS records, and DKIM keys
-          </p>
-        </div>
-        <Button onClick={() => setShowCreateModal(true)}>
-          Add Domain
-        </Button>
-      </div>
+      <PageHeader
+        title="Mail Domains"
+        description={`${domains.length} domain${domains.length === 1 ? "" : "s"} configured`}
+        actions={
+          <Button variant="primary" onClick={() => setShowCreateModal(true)}>
+            Add Domain
+          </Button>
+        }
+      />
 
-      {/* Domain List */}
       <Card>
-        {data?.domains.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <p className="text-lg">No mail domains configured</p>
-            <p className="text-sm">Add your first mail domain to get started</p>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Spinner size={24} />
           </div>
+        ) : error ? (
+          <ErrorState
+            description="Failed to load mail domains."
+            onRetry={() => refetch()}
+          />
+        ) : domains.length === 0 ? (
+          <EmptyState
+            title="No mail domains yet"
+            description="Add your first mail domain to start managing email for your domains."
+            action={
+              <Button variant="primary" onClick={() => setShowCreateModal(true)}>
+                Add Domain
+              </Button>
+            }
+          />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Domain
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    DKIM
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Catch All
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Created
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {data?.domains.map((domain) => (
-                  <tr key={domain.id}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="font-medium text-gray-900">{domain.domain}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <Badge
-                        tone={domain.status === "active" ? "success" : "warning"}
-                      >
-                        {domain.status}
-                      </Badge>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {domain.dkim_public ? (
-                        <Badge tone="info">Configured</Badge>
-                      ) : (
-                        <Badge tone="neutral">Not Set</Badge>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {domain.is_catch_all ? "Yes" : "No"}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatDate(domain.created_at)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                      <Button
-                        variant="ghost"
-                        
-                        onClick={() => setShowDNSModal(domain.id)}
-                      >
-                        DNS Records
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        
-                        onClick={() => {
-                          if (confirm(`Delete ${domain.domain}?`)) {
-                            deleteMutation.mutate(domain.id);
-                          }
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table
+            columns={columns}
+            rows={domains}
+            keyOf={(d) => d.id}
+          />
         )}
       </Card>
 
       {/* Create Modal */}
       <Modal
         open={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        onClose={() => !isPending && setShowCreateModal(false)}
         title="Add Mail Domain"
-      >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            createMutation.mutate(newDomain);
-          }}
-          className="space-y-4"
-        >
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Domain Name
-            </label>
-            <Input
-              type="text"
-              value={newDomain}
-              onChange={(e) => setNewDomain(e.target.value)}
-              placeholder="example.com"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Max Mailboxes
-            </label>
-            <Input
-              type="number"
-              value={maxMailboxes}
-              onChange={(e) => setMaxMailboxes(Number(e.target.value))}
-              min={1}
-            />
-          </div>
-          <div className="flex justify-end gap-2">
+        description="Add a new mail domain for email hosting."
+        footer={
+          <>
             <Button
-              type="button"
               variant="secondary"
               onClick={() => setShowCreateModal(false)}
+              disabled={isPending}
             >
               Cancel
             </Button>
             <Button
-              type="submit"
-              disabled={createMutation.isPending}
+              variant="primary"
+              loading={createMutation.isPending}
+              onClick={() => createMutation.mutate()}
+              disabled={!newDomain.trim()}
             >
-              {createMutation.isPending ? "Creating..." : "Create Domain"}
+              Create Domain
             </Button>
-          </div>
-        </form>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Input
+            label="Domain Name"
+            value={newDomain}
+            onChange={(e) => setNewDomain(e.target.value)}
+            placeholder="example.com"
+            description="Enter the domain name without www"
+          />
+
+          <Input
+            label="Max Mailboxes"
+            type="number"
+            value={maxMailboxes}
+            onChange={(e) => setMaxMailboxes(parseInt(e.target.value) || 100)}
+            min={1}
+            max={10000}
+          />
+        </div>
       </Modal>
 
       {/* DNS Records Modal */}
       <Modal
-        open={!!showDNSModal}
+        open={showDNSModal !== null}
         onClose={() => setShowDNSModal(null)}
-        title="DNS Records"
+        title="DNS Configuration"
+        description={`DNS records for ${showDNSModal?.domain ?? "domain"}. Add these to your DNS provider.`}
+        footer={
+          <Button variant="secondary" onClick={() => setShowDNSModal(null)}>
+            Close
+          </Button>
+        }
       >
-        {dnsRecords ? (
+        {dnsLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Spinner size={20} />
+          </div>
+        ) : dnsRecords ? (
           <div className="space-y-4">
-            <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-1">SPF Record</h3>
-              <code className="block bg-gray-100 p-2 rounded text-sm">
-                {dnsRecords.spf}
-              </code>
+            <div className="rounded-md border border-surface-border bg-surface-2 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">SPF Record</span>
+                <Badge tone="info">TXT</Badge>
+              </div>
+              <code className="block whitespace-pre-wrap text-xs text-ink-1">{dnsRecords.spf ?? "—"}</code>
             </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-1">DMARC Record</h3>
-              <code className="block bg-gray-100 p-2 rounded text-sm">
-                {dnsRecords.dmarc}
-              </code>
+
+            <div className="rounded-md border border-surface-border bg-surface-2 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">DMARC Record</span>
+                <Badge tone="info">TXT</Badge>
+              </div>
+              <code className="block whitespace-pre-wrap text-xs text-ink-1">{dnsRecords.dmarc ?? "—"}</code>
             </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-1">DKIM Record</h3>
-              <code className="block bg-gray-100 p-2 rounded text-sm whitespace-pre-wrap">
-                {dnsRecords.dkim}
-              </code>
+
+            <div className="rounded-md border border-surface-border bg-surface-2 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">DKIM Record</span>
+                <Badge tone="info">TXT</Badge>
+              </div>
+              <code className="block whitespace-pre-wrap break-all text-xs text-ink-1">{dnsRecords.dkim ?? "—"}</code>
             </div>
-            <div className="text-sm text-gray-500 mt-4">
-              Add these records to your DNS provider to enable mail authentication.
-            </div>
+
+            <p className="text-xs text-ink-3">
+              Add these DNS records to your domain's DNS settings to enable mail authentication and prevent spam.
+            </p>
           </div>
         ) : (
-          <div className="flex items-center justify-center h-32">
-            <Spinner />
-          </div>
+          <p className="text-sm text-ink-3">DNS records unavailable.</p>
         )}
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        open={confirmDelete !== null}
+        onClose={() => !isPending && setConfirmDelete(null)}
+        title="Delete Mail Domain"
+        description={`Are you sure you want to delete "${confirmDelete?.domain}"? This will remove all mailboxes and aliases for this domain.`}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setConfirmDelete(null)}
+              disabled={isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={deleteMutation.isPending}
+              onClick={() => confirmDelete && deleteMutation.mutate(confirmDelete.id)}
+            >
+              Delete Domain
+            </Button>
+          </>
+        }
+      >
+        <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-sm text-danger">
+          This will permanently delete the mail domain and all associated mailboxes, aliases, and forwarders.
+        </div>
       </Modal>
     </div>
   );

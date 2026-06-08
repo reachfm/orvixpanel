@@ -1,6 +1,6 @@
 /**
  * SSL Certificates list. Real data from the backend API.
- *
+ * Professional cPanel-style SSL certificate management.
  * Routes:
  *   /ssl/certificates              CertificatesListPage
  *   /ssl/certificates/:id          CertificateDetailPage
@@ -17,7 +17,9 @@ import { Select } from "@/lib/ui/Select";
 import { Modal } from "@/lib/ui/Modal";
 import { Table, type Column } from "@/lib/ui/Table";
 import { StatusPill } from "@/lib/ui/StatusPill";
-import { EmptyState, ErrorState, LoadingState } from "@/lib/ui/Feedback";
+import { EmptyState, ErrorState, Spinner } from "@/lib/ui/Feedback";
+import { formatDate } from "@/lib/utils";
+import { cn } from "@/lib/ui/cn";
 import {
   sslKeys,
   listCertificates,
@@ -53,10 +55,10 @@ function formatExpiry(dateStr?: string): string {
   const date = new Date(dateStr);
   const now = new Date();
   const diffDays = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays < 0) return `Expired ${Math.abs(diffDays)} days ago`;
+  if (diffDays < 0) return `Expired ${Math.abs(diffDays)}d ago`;
   if (diffDays === 0) return "Expires today";
-  if (diffDays <= 30) return `Expires in ${diffDays} days`;
-  return date.toLocaleDateString();
+  if (diffDays <= 30) return `Expires in ${diffDays}d`;
+  return formatDate(dateStr);
 }
 
 export function CertificatesListPage() {
@@ -201,6 +203,8 @@ export function CertificatesListPage() {
     });
   };
 
+  const isPending = issueMutation.isPending || importMutation.isPending || renewMutation.isPending || deleteMutation.isPending;
+
   // Table columns
   const columns: Column<SSLCertificate>[] = [
     {
@@ -210,7 +214,7 @@ export function CertificatesListPage() {
         <Link
           to="/ssl/certificates/$id"
           params={{ id: cert.id }}
-          className="font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+          className="font-medium text-brand-600 hover:underline"
         >
           {cert.common_name}
         </Link>
@@ -220,7 +224,7 @@ export function CertificatesListPage() {
       key: "provider",
       header: "Provider",
       cell: (cert) => (
-        <span className="capitalize text-gray-600 dark:text-gray-400">{cert.provider}</span>
+        <span className="capitalize text-ink-2">{cert.provider}</span>
       ),
     },
     {
@@ -236,23 +240,24 @@ export function CertificatesListPage() {
       key: "expires",
       header: "Expires",
       cell: (cert) => (
-        <span className="text-gray-600 dark:text-gray-400">{formatExpiry(cert.not_after)}</span>
+        <span className="text-ink-2">{formatExpiry(cert.not_after)}</span>
       ),
     },
     {
       key: "auto_renew",
       header: "Auto-Renew",
       cell: (cert) => (
-        <span className={cert.auto_renew ? "text-green-600" : "text-gray-400"}>
+        <span className={cert.auto_renew ? "text-success" : "text-ink-3"}>
           {cert.auto_renew ? "Yes" : "No"}
         </span>
       ),
     },
     {
       key: "actions",
-      header: "Actions",
+      header: "",
+      align: "right",
       cell: (cert) => (
-        <div className="flex items-center gap-2">
+        <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
           <Button
             variant="ghost"
             size="sm"
@@ -263,7 +268,7 @@ export function CertificatesListPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="text-red-600 hover:text-red-800 dark:text-red-400"
+            className="text-danger hover:text-danger"
             onClick={() => setDeleteModal(cert)}
           >
             Delete
@@ -273,259 +278,285 @@ export function CertificatesListPage() {
     },
   ];
 
-  if (q.isLoading) return <LoadingState />;
-  if (q.isError) return <ErrorState description="Failed to load certificates" onRetry={() => q.refetch()} />;
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="SSL Certificates"
-        description="Manage SSL/TLS certificates with Let's Encrypt and other providers"
+        description={`${certs.length} certificate${certs.length === 1 ? "" : "s"} managed`}
         actions={
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setImportModalOpen(true)}>
+            <Button variant="secondary" onClick={() => setImportModalOpen(true)}>
               Import
             </Button>
-            <Button onClick={() => setIssueModalOpen(true)}>Issue New</Button>
+            <Button variant="primary" onClick={() => setIssueModalOpen(true)}>
+              Issue New
+            </Button>
           </div>
         }
       />
 
       {/* Filters */}
-      <Card className="p-4">
-        <div className="flex flex-wrap gap-4">
-          <div className="flex-1 min-w-[200px]">
+      <Card>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex-1">
             <Input
-              placeholder="Search domains..."
+              label="Search"
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search by domain..."
             />
           </div>
-          <Select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="w-40"
-          >
-            <option value="all">All Status</option>
-            <option value="issued">Active</option>
-            <option value="expiring_soon">Expiring Soon</option>
-            <option value="expired">Expired</option>
-            <option value="pending">Pending</option>
-            <option value="failed">Failed</option>
-            <option value="revoked">Revoked</option>
-          </Select>
+          <div className="w-full sm:w-40">
+            <Select
+              label="Status"
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+            >
+              <option value="all">All statuses</option>
+              <option value="issued">Active</option>
+              <option value="expiring_soon">Expiring Soon</option>
+              <option value="expired">Expired</option>
+              <option value="pending">Pending</option>
+              <option value="failed">Failed</option>
+              <option value="revoked">Revoked</option>
+            </Select>
+          </div>
         </div>
-      </Card>
 
-      {/* Table */}
-      {paginatedCerts.length === 0 ? (
-        <EmptyState
-          title="No certificates found"
-          description={
-            searchQuery || statusFilter !== "all"
-              ? "Try adjusting your filters"
-              : "Issue your first SSL certificate to get started"
-          }
-          action={
-            !searchQuery && statusFilter === "all" ? (
-              <Button onClick={() => setIssueModalOpen(true)}>Issue Certificate</Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <>
-          <Table<SSLCertificate> rows={paginatedCerts} columns={columns} keyOf={(c) => c.id} />
-          {totalPages > 1 && (
-            <div className="flex justify-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage((p) => p - 1)}
-              >
-                Previous
-              </Button>
-              <span className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400">
-                Page {currentPage} of {totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage((p) => p + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          )}
-        </>
-      )}
+        {q.isError ? (
+          <ErrorState description="Failed to load certificates" onRetry={() => q.refetch()} />
+        ) : q.isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Spinner size={24} />
+          </div>
+        ) : filteredCerts.length === 0 ? (
+          <EmptyState
+            title={searchQuery || statusFilter !== "all" ? "No certificates match your filters" : "No certificates yet"}
+            description={
+              searchQuery || statusFilter !== "all"
+                ? "Try adjusting your search or filters."
+                : "Issue your first SSL certificate to secure your domains."
+            }
+            action={
+              !searchQuery && statusFilter === "all" && (
+                <Button variant="primary" onClick={() => setIssueModalOpen(true)}>
+                  Issue Certificate
+                </Button>
+              )
+            }
+          />
+        ) : (
+          <>
+            <Table
+              rows={paginatedCerts}
+              columns={columns}
+              keyOf={(c) => c.id}
+            />
+            {totalPages > 1 && (
+              <div className="mt-4 flex items-center justify-between border-t border-surface-border pt-4">
+                <div className="text-sm text-ink-3">
+                  Showing {(currentPage - 1) * PAGE_SIZE + 1} to{" "}
+                  {Math.min(currentPage * PAGE_SIZE, filteredCerts.length)} of{" "}
+                  {filteredCerts.length} certificates
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((p) => p - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage((p) => p + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </Card>
 
       {/* Issue Certificate Modal */}
       <Modal
         open={issueModalOpen}
-        onClose={() => setIssueModalOpen(false)}
+        onClose={() => !isPending && setIssueModalOpen(false)}
         title="Issue New Certificate"
+        description="Let's Encrypt and other ACME providers supported."
         footer={
           <>
-            <Button variant="outline" onClick={() => setIssueModalOpen(false)}>
+            <Button variant="secondary" onClick={() => setIssueModalOpen(false)} disabled={isPending}>
               Cancel
             </Button>
             <Button
+              variant="primary"
               onClick={handleIssueCert}
               disabled={!newCertDomain.trim() || issueMutation.isPending}
+              loading={issueMutation.isPending}
             >
-              {issueMutation.isPending ? "Issuing..." : "Issue"}
+              Issue Certificate
             </Button>
           </>
         }
       >
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Domain *</label>
-            <Input
-              placeholder="example.com"
-              value={newCertDomain}
-              onChange={(e) => setNewCertDomain(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleIssueCert()}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Additional Domains (SANs)</label>
-            <Input
-              placeholder="www.example.com, api.example.com"
-              value={newCertSANs}
-              onChange={(e) => setNewCertSANs(e.target.value)}
-            />
-            <p className="mt-1 text-xs text-gray-500">Comma-separated list of additional domains</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Provider</label>
-            <Select
-              value={newCertProvider}
-              onChange={(e) => setNewCertProvider(e.target.value as SSLProvider)}
+          <Input
+            label="Domain *"
+            placeholder="example.com"
+            value={newCertDomain}
+            onChange={(e) => setNewCertDomain(e.target.value)}
+          />
+          <Input
+            label="Additional Domains (SANs)"
+            placeholder="www.example.com, api.example.com"
+            value={newCertSANs}
+            onChange={(e) => setNewCertSANs(e.target.value)}
+            description="Comma-separated list of additional domains"
+          />
+          <Select
+            label="Provider"
+            value={newCertProvider}
+            onChange={(e) => setNewCertProvider(e.target.value as SSLProvider)}
+          >
+            <option value="letsencrypt">Let's Encrypt</option>
+            <option value="zerossl">ZeroSSL</option>
+          </Select>
+
+          {/* Auto-renew toggle */}
+          <div
+            className={cn(
+              "flex items-center gap-3 rounded-md border p-3 cursor-pointer",
+              newCertAutoRenew
+                ? "border-brand-500 bg-brand-500/5"
+                : "border-surface-border hover:border-ink-3",
+            )}
+            onClick={() => setNewCertAutoRenew(!newCertAutoRenew)}
+          >
+            <div
+              className={cn(
+                "flex h-5 w-5 items-center justify-center rounded border",
+                newCertAutoRenew
+                  ? "border-brand-500 bg-brand-500 text-white"
+                  : "border-surface-border bg-surface-1",
+              )}
             >
-              <option value="letsencrypt">Let's Encrypt</option>
-              <option value="zerossl">ZeroSSL</option>
-            </Select>
+              {newCertAutoRenew && (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="h-3.5 w-3.5">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+            </div>
+            <div className="flex-1">
+              <div className="text-sm font-medium text-ink-1">Enable auto-renewal</div>
+              <div className="text-xs text-ink-3">Recommended — certificate will auto-renew before expiry</div>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="auto-renew"
-              checked={newCertAutoRenew}
-              onChange={(e) => setNewCertAutoRenew(e.target.checked)}
-              className="rounded border-gray-300"
-            />
-            <label htmlFor="auto-renew" className="text-sm">Enable auto-renewal (recommended)</label>
-          </div>
-          {issueMutation.isError && (
-            <p className="text-sm text-red-600 dark:text-red-400">
-              Failed to issue certificate. Please check the domain name and try again.
-            </p>
-          )}
         </div>
       </Modal>
 
       {/* Import Certificate Modal */}
       <Modal
         open={importModalOpen}
-        onClose={() => setImportModalOpen(false)}
+        onClose={() => !isPending && setImportModalOpen(false)}
         title="Import Certificate"
+        description="Import an existing SSL certificate and private key."
         footer={
           <>
-            <Button variant="outline" onClick={() => setImportModalOpen(false)}>
+            <Button variant="secondary" onClick={() => setImportModalOpen(false)} disabled={isPending}>
               Cancel
             </Button>
             <Button
+              variant="primary"
               onClick={handleImportCert}
               disabled={!importDomain.trim() || !importCertPEM.trim() || !importKeyPEM.trim() || importMutation.isPending}
+              loading={importMutation.isPending}
             >
-              {importMutation.isPending ? "Importing..." : "Import"}
+              Import Certificate
             </Button>
           </>
         }
       >
         <div className="space-y-4">
+          <Input
+            label="Domain *"
+            placeholder="example.com"
+            value={importDomain}
+            onChange={(e) => setImportDomain(e.target.value)}
+          />
           <div>
-            <label className="block text-sm font-medium mb-1">Domain *</label>
-            <Input
-              placeholder="example.com"
-              value={importDomain}
-              onChange={(e) => setImportDomain(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Certificate (PEM) *</label>
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">Certificate (PEM) *</label>
             <textarea
-              className="w-full h-24 px-3 py-2 text-sm border rounded-md bg-surface-1 border-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="w-full h-24 px-3 py-2 text-sm border rounded-md bg-surface-1 border-surface-border focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/20"
               placeholder="-----BEGIN CERTIFICATE-----"
               value={importCertPEM}
               onChange={(e) => setImportCertPEM(e.target.value)}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Private Key (PEM) *</label>
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">Private Key (PEM) *</label>
             <textarea
-              className="w-full h-24 px-3 py-2 text-sm border rounded-md bg-surface-1 border-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="w-full h-24 px-3 py-2 text-sm border rounded-md bg-surface-1 border-surface-border focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/20"
               placeholder="-----BEGIN PRIVATE KEY-----"
               value={importKeyPEM}
               onChange={(e) => setImportKeyPEM(e.target.value)}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Certificate Chain (PEM)</label>
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">Certificate Chain (PEM)</label>
             <textarea
-              className="w-full h-24 px-3 py-2 text-sm border rounded-md bg-surface-1 border-surface-border focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="w-full h-24 px-3 py-2 text-sm border rounded-md bg-surface-1 border-surface-border focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/20"
               placeholder="-----BEGIN CERTIFICATE----- (optional)"
               value={importChainPEM}
               onChange={(e) => setImportChainPEM(e.target.value)}
             />
           </div>
-          {importMutation.isError && (
-            <p className="text-sm text-red-600 dark:text-red-400">
-              Failed to import certificate. Please check the PEM data.
-            </p>
-          )}
         </div>
       </Modal>
 
       {/* Renew Confirmation Modal */}
       <Modal
         open={renewModal !== null}
-        onClose={() => setRenewModal(null)}
+        onClose={() => !isPending && setRenewModal(null)}
         title="Renew Certificate"
+        description={`Are you sure you want to renew the certificate for "${renewModal?.common_name}"?`}
         footer={
           <>
-            <Button variant="outline" onClick={() => setRenewModal(null)}>
+            <Button variant="secondary" onClick={() => setRenewModal(null)} disabled={isPending}>
               Cancel
             </Button>
             <Button
+              variant="primary"
               onClick={() => renewModal && renewMutation.mutate(renewModal.id)}
               loading={renewMutation.isPending}
             >
-              {renewMutation.isPending ? "Renewing..." : "Renew"}
+              Renew Certificate
             </Button>
           </>
         }
       >
-        <p>
-          Are you sure you want to renew the certificate for{" "}
-          <strong>{renewModal?.common_name}</strong>?
-        </p>
+        <div className="rounded-md border border-surface-border bg-surface-2 p-3 text-sm text-ink-2">
+          The certificate will be renewed with the same provider and settings.
+        </div>
       </Modal>
 
       {/* Delete Confirmation Modal */}
       <Modal
         open={deleteModal !== null}
-        onClose={() => setDeleteModal(null)}
+        onClose={() => !isPending && setDeleteModal(null)}
         title="Delete Certificate"
+        description={`Are you sure you want to delete the certificate for "${deleteModal?.common_name}"?`}
         footer={
           <>
-            <Button variant="outline" onClick={() => setDeleteModal(null)}>
+            <Button variant="secondary" onClick={() => setDeleteModal(null)} disabled={isPending}>
               Cancel
             </Button>
             <Button
@@ -533,15 +564,14 @@ export function CertificatesListPage() {
               onClick={() => deleteModal && deleteMutation.mutate(deleteModal.id)}
               loading={deleteMutation.isPending}
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              Delete Certificate
             </Button>
           </>
         }
       >
-        <p>
-          Are you sure you want to delete the certificate for{" "}
-          <strong>{deleteModal?.common_name}</strong>? This action cannot be undone.
-        </p>
+        <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-sm text-danger">
+          This will permanently delete the certificate. Any sites using this cert will lose HTTPS.
+        </div>
       </Modal>
     </div>
   );
