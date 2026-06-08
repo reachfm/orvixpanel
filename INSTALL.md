@@ -1,6 +1,6 @@
 # OrvixPanel — Installation Guide
 
-OrvixPanel v0.2.1 ships a one-shot `install.sh` that turns a
+OrvixPanel v0.4.2 ships a one-shot `install.sh` that turns a
 clean Ubuntu 22.04+ (or WSL Ubuntu 26.04) into a working
 hosting panel in one command.
 
@@ -8,10 +8,13 @@ hosting panel in one command.
 
 ```bash
 # Build the binary first (Windows or Linux)
-go build -ldflags="-s -w -X main.version=0.2.1" -o bin/orvixpanel.linux ./cmd/orvixpanel
+go build -ldflags="-s -w -X main.version=0.4.2" -o bin/orvixpanel.linux ./cmd/orvixpanel
 
 # Install (on the target Linux box)
 sudo bash scripts/install.sh
+
+# Optional: Install with PowerDNS for live DNS management
+sudo bash scripts/install.sh --with-powerdns
 
 # Verify
 sudo bash scripts/doctor.sh
@@ -44,6 +47,25 @@ sudo bash scripts/doctor.sh
 8. `nginx -t` + `systemctl reload nginx`.
 9. Boots the binary + probes `/healthz` 5×.
 10. Runs `doctor.sh` to print the install-time health matrix.
+
+### PowerDNS Installation (with `--with-powerdns`)
+
+When `--with-powerdns` is passed, the installer additionally:
+
+1. Installs PowerDNS packages:
+   - `pdns-server` — DNS server
+   - `pdns-backend-sqlite3` — SQLite3 backend
+   - `dnsutils` — dig and nslookup utilities
+2. Creates PowerDNS database at `/var/lib/orvixpanel/powerdns.sqlite3`
+3. Configures `/etc/powerdns/pdns.conf`:
+   - Enables webserver on port 8081
+   - Configures API with generated API key
+   - Sets SQLite3 backend
+4. Starts PowerDNS service
+5. Writes DNS configuration to env file:
+   - `ORVIX_DNS_MODE=powerdns`
+   - `ORVIX_POWERDNS_URL=http://127.0.0.1:8081`
+   - `ORVIX_POWERDNS_API_KEY=<generated-key>`
 
 ## Environment variables written to `/etc/orvixpanel/orvixpanel.env`
 
@@ -80,6 +102,7 @@ sudo bash scripts/install.sh --help
 | `--no-start` | off | install but don't start |
 | `--dry-run` | off | print commands without executing |
 | `-y` / `--yes` | off | for symmetry with uninstall.sh |
+| `--with-powerdns` | off | install PowerDNS server with SQLite3 backend |
 
 ## Common operations
 

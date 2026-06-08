@@ -22,6 +22,7 @@ type Config struct {
 	DB      DBConfig      `mapstructure:"database"`
 	Redis   RedisConfig   `mapstructure:"redis"`
 	Auth    AuthConfig    `mapstructure:"auth"`
+	DNS     DNSConfig     `mapstructure:"dns"`
 }
 
 type ServerConfig struct {
@@ -55,6 +56,14 @@ type AuthConfig struct {
 	MaxFailedLogins int           `mapstructure:"max_failed_logins"`
 	LockoutDuration time.Duration `mapstructure:"lockout_duration"`
 	BcryptCost      int           `mapstructure:"bcrypt_cost"`
+}
+
+// DNSConfig holds DNS mode and PowerDNS integration settings.
+type DNSConfig struct {
+	Mode           string `mapstructure:"mode"`            // "local" or "powerdns"
+	PowerDNSURL    string `mapstructure:"powerdns_url"`    // e.g., "http://127.0.0.1:8081"
+	PowerDNSAPIKey string `mapstructure:"powerdns_api_key"` // API key for PowerDNS
+	PowerDNSServer string `mapstructure:"powerdns_server"` // e.g., "localhost"
 }
 
 // Load reads configuration from TOML + environment.
@@ -113,6 +122,10 @@ func Load() (*Config, error) {
 	v.SetDefault("auth.lockout_duration", "15m")
 	v.SetDefault("auth.bcrypt_cost", 12)
 
+	// DNS defaults
+	v.SetDefault("dns.mode", "local")
+	v.SetDefault("dns.powerdns_server", "localhost")
+
 	// File lookup. The production config file is orvixpanel.toml
 	// in /etc/orvixpanel (or ./configs, or .). We DO NOT search
 	// for the bare name "orvixpanel" because v0.2.1 ships an
@@ -143,6 +156,12 @@ func Load() (*Config, error) {
 	v.BindEnv("redis.password", "ORVIX_REDIS_PASSWORD")
 	v.BindEnv("auth.access_token_ttl", "ORVIX_AUTH_ACCESS_TOKEN_TTL")
 	v.BindEnv("auth.refresh_token_ttl", "ORVIX_AUTH_REFRESH_TOKEN_TTL")
+
+	// DNS bindings
+	v.BindEnv("dns.mode", "ORVIX_DNS_MODE")
+	v.BindEnv("dns.powerdns_url", "ORVIX_POWERDNS_URL")
+	v.BindEnv("dns.powerdns_api_key", "ORVIX_POWERDNS_API_KEY")
+	v.BindEnv("dns.powerdns_server", "ORVIX_POWERDNS_SERVER_ID")
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {

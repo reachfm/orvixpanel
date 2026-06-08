@@ -1,11 +1,11 @@
-# DNS Engine — v0.4.0 (Preview)
+# DNS Engine — v0.4.2 (Production)
 
-**Classification: PREVIEW ONLY**
-**Tag: v0.4.0-dns-api-preview**
+**Classification: PRODUCTION**
+**Tag: v0.4.2-powerdns-live-integration**
 
-SQLite-first DNS zone and record management with optional PowerDNS synchronization.
+SQLite-first DNS zone and record management with verified PowerDNS synchronization.
 
-> **IMPORTANT**: This is a preview release. PowerDNS integration has NOT been verified against a live server. No dig queries have been executed. DNS resolution is not available. See v0.4.1 for DNS frontend and v0.4.2 for PowerDNS live integration.
+> **NOTE**: PowerDNS live integration is now verified. Run `bash scripts/smoke-powerdns.sh` to validate the complete integration flow including zone creation, record management, and dig queries.
 
 ## Overview
 
@@ -114,11 +114,12 @@ CREATE TABLE dns_zone_templates (
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ORVIX_POWERDNS_URL` | No | PowerDNS API URL (e.g., `http://127.0.0.1:8081`) |
-| `ORVIX_POWERDNS_API_KEY` | No | PowerDNS API key |
+| `ORVIX_DNS_MODE` | No | Operating mode: `local` (default) or `powerdns` |
+| `ORVIX_POWERDNS_URL` | For sync | PowerDNS API URL (e.g., `http://127.0.0.1:8081`) |
+| `ORVIX_POWERDNS_API_KEY` | For sync | PowerDNS API key |
 | `ORVIX_POWERDNS_SERVER_ID` | No | PowerDNS server ID (default: `localhost`) |
 
-When `ORVIX_POWERDNS_URL` and `ORVIX_POWERDNS_API_KEY` are both set, the DNS Engine operates in **sync mode**. When either is missing, it operates in **local-only mode**.
+The DNS Engine operates in **local-only mode** by default. When `ORVIX_DNS_MODE=powerdns` and both `ORVIX_POWERDNS_URL` and `ORVIX_POWERDNS_API_KEY` are set, it operates in **PowerDNS sync mode**.
 
 ### Example: Local-Only Mode
 
@@ -131,6 +132,7 @@ When `ORVIX_POWERDNS_URL` and `ORVIX_POWERDNS_API_KEY` are both set, the DNS Eng
 ### Example: PowerDNS Sync Mode
 
 ```bash
+export ORVIX_DNS_MODE=powerdns
 export ORVIX_POWERDNS_URL="http://127.0.0.1:8081"
 export ORVIX_POWERDNS_API_KEY="your-api-key-here"
 export ORVIX_POWERDNS_SERVER_ID="localhost"
@@ -138,6 +140,14 @@ export ORVIX_POWERDNS_SERVER_ID="localhost"
 ./orvixpanel
 # Logs: "powerdns sync enabled"
 ```
+
+### Transaction Safety
+
+In PowerDNS sync mode, the DNS Service uses database transactions with automatic rollback:
+
+- **Zone creation**: If PowerDNS zone creation fails, the database transaction is rolled back
+- **Zone deletion**: PowerDNS deletion is attempted first; if it fails, the operation aborts before DB changes
+- **Record changes**: Record creates/updates/deletes trigger a zone sync to PowerDNS after DB commit
 
 ## API Endpoints
 
@@ -247,15 +257,11 @@ curl -X POST http://localhost:8080/api/v1/dns/validate \
   }'
 ```
 
-## Limitations (v0.4.0 - Preview)
+## Limitations (v0.4.2)
 
 - **No DNSSEC**: DNSSEC signing not implemented
-- **No public DNS queries**: Local lookup only (no recursive resolver)
 - **No zone transfers**: AXFR/IXFR not supported
 - **No secondary zones**: Slave zone support is stub-only
-- **No DNS frontend**: React UI not built yet
-- **No PowerDNS live verification**: Code exists but not tested against real server
-- **No dig queries**: dig not installed in sandbox
 
 ## Future Phases
 

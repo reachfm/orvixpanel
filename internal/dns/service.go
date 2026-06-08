@@ -80,19 +80,39 @@ func (s *Service) CreateZone(ctx context.Context, input CreateZoneInput) (*model
 		zone.Masters = string(mastersJSON)
 	}
 
-	if err := s.db.WithContext(ctx).Create(zone).Error; err != nil {
-		return nil, fmt.Errorf("create zone: %w", err)
-	}
-
-	// Sync to PowerDNS if configured
+	// Use transaction for PowerDNS mode
 	if s.IsPowerDNSEnabled() {
+		tx := s.db.WithContext(ctx).Begin()
+		if tx.Error != nil {
+			return nil, fmt.Errorf("begin transaction: %w", tx.Error)
+		}
+
+		if err := tx.Create(zone).Error; err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("create zone: %w", err)
+		}
+
+		// Sync to PowerDNS
 		if err := s.pdns.CreateZone(PowerDNSZone{
 			Name: zone.Domain,
 			Kind: zone.Type,
 		}); err != nil {
-			// Log but don't fail - local storage is primary
-			fmt.Printf("powerdns sync warning: %v\n", err)
+			tx.Rollback()
+			return nil, fmt.Errorf("powerdns sync failed, rolled back: %w", err)
 		}
+
+		if err := tx.Commit().Error; err != nil {
+			// Try to clean up PowerDNS even if DB commit fails
+			_ = s.pdns.DeleteZone(zone.Domain)
+			return nil, fmt.Errorf("commit transaction: %w", err)
+		}
+
+		return zone, nil
+	}
+
+	// Local-only mode: no transaction needed
+	if err := s.db.WithContext(ctx).Create(zone).Error; err != nil {
+		return nil, fmt.Errorf("create zone: %w", err)
 	}
 
 	return zone, nil
@@ -178,23 +198,45 @@ func (s *Service) DeleteZone(ctx context.Context, zoneID string) error {
 		return fmt.Errorf("get zone: %w", err)
 	}
 
-	// Delete all records for this zone
+	// Use transaction for PowerDNS mode
+	if s.IsPowerDNSEnabled() {
+		// First delete from PowerDNS
+		if err := s.pdns.DeleteZone(zone.Domain); err != nil {
+			return fmt.Errorf("powerdns delete failed: %w", err)
+		}
+
+		// Then delete from DB
+		tx := s.db.WithContext(ctx).Begin()
+		if tx.Error != nil {
+			return fmt.Errorf("begin transaction: %w", tx.Error)
+		}
+
+		if err := tx.Where("zone_id = ?", zoneID).Delete(&models.DNSRecord{}).Error; err != nil {
+			tx.Rollback()
+			return fmt.Errorf("delete records: %w", err)
+		}
+
+		if err := tx.Delete(&zone).Error; err != nil {
+			tx.Rollback()
+			return fmt.Errorf("delete zone: %w", err)
+		}
+
+		if err := tx.Commit().Error; err != nil {
+			return fmt.Errorf("commit transaction: %w", err)
+		}
+
+		return nil
+	}
+
+	// Local-only mode: no PowerDNS sync needed
 	if err := s.db.WithContext(ctx).
 		Where("zone_id = ?", zoneID).
 		Delete(&models.DNSRecord{}).Error; err != nil {
 		return fmt.Errorf("delete records: %w", err)
 	}
 
-	// Delete the zone
 	if err := s.db.WithContext(ctx).Delete(&zone).Error; err != nil {
 		return fmt.Errorf("delete zone: %w", err)
-	}
-
-	// Sync to PowerDNS if configured
-	if s.IsPowerDNSEnabled() {
-		if err := s.pdns.DeleteZone(zone.Domain); err != nil {
-			fmt.Printf("powerdns sync warning: %v\n", err)
-		}
 	}
 
 	return nil
