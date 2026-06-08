@@ -48,6 +48,12 @@ import { CertificatesListPage } from "@/pages/CertificatesList";
 import { CertificateDetailPage } from "@/pages/CertificateDetail";
 import { BackupsListPage } from "@/pages/BackupsList";
 import { BackupDetailPage } from "@/pages/BackupDetail";
+import { MailDomainsListPage } from "@/pages/MailDomainsList";
+import { MailboxesListPage } from "@/pages/MailboxesList";
+import { MailAliasesPage } from "@/pages/MailAliases";
+import { MailForwardersPage } from "@/pages/MailForwarders";
+import { MailAuditLogPage } from "@/pages/MailAuditLog";
+import { MailStatsPage } from "@/pages/MailStats";
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
@@ -172,6 +178,43 @@ const backupDetailRoute = createRoute({
   component: BackupDetailPage,
 });
 
+// Mail routes
+const mailDomainsListRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/mail/domains",
+  component: MailDomainsListPage,
+});
+
+const mailboxesListRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/mail/mailboxes",
+  component: MailboxesListPage,
+});
+
+const mailAliasesRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/mail/aliases",
+  component: MailAliasesPage,
+});
+
+const mailForwardersRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/mail/forwarders",
+  component: MailForwardersPage,
+});
+
+const mailAuditLogRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/mail/audit",
+  component: MailAuditLogPage,
+});
+
+const mailStatsRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/mail/stats",
+  component: MailStatsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   appLayoutRoute.addChildren([
@@ -192,6 +235,12 @@ const routeTree = rootRoute.addChildren([
     sslCertificateDetailRoute,
     backupsListRoute,
     backupDetailRoute,
+    mailDomainsListRoute,
+    mailboxesListRoute,
+    mailAliasesRoute,
+    mailForwardersRoute,
+    mailAuditLogRoute,
+    mailStatsRoute,
   ]),
 ]);
 
