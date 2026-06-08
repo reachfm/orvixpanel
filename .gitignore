@@ -18,14 +18,7 @@
 **/downloads/
 **/eggs/
 **/.eggs/
-# Python dependency lib folders (not source code)
-**/node_modules/lib/
-**/site-packages/
-**/.venv/lib/
-/lib/
-lib/
-
-# System lib64 (architecture-specific)
+**/lib/
 **/lib64/
 **/parts/
 **/sdist/
