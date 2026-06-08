@@ -20,7 +20,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -121,11 +120,12 @@ func runUpdate(args []string) int {
 		Channel: update.ChannelStable,
 	}
 	var channelStr string
+	var forceReset, stashLocal bool
 
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.Usage = func() {
-		fmt.Println("Usage: orvixpanel update [options]")
-		fmt.Println("\nOptions:")
+		fmt.Fprintln(os.Stderr, "Usage: orvixpanel update [options]")
+		fmt.Fprintln(os.Stderr, "\nOptions:")
 		fs.PrintDefaults()
 	}
 	fs.BoolVar(&cfg.Check, "check", false, "Check for updates without installing")
@@ -134,11 +134,12 @@ func runUpdate(args []string) int {
 	fs.BoolVar(&cfg.SkipFetch, "skip-fetch", false, "Skip git fetch")
 	fs.BoolVar(&cfg.Verbose, "verbose", false, "Show detailed output")
 	fs.BoolVar(&cfg.Rollback, "rollback", false, "Rollback to previous version")
+	fs.BoolVar(&forceReset, "force-reset", false, "Force git reset --hard (discards local changes)")
+	fs.BoolVar(&stashLocal, "stash-local", false, "Stash local changes before fetch")
 	fs.StringVar(&channelStr, "channel", "stable", "Update channel (stable|preview)")
 	fs.StringVar(&cfg.Version, "version", "", "Specific version/tag/commit to install")
 
-	// Override error output
-	fs.SetOutput(io.Discard)
+	// Parse flags
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -171,28 +172,34 @@ func runUpdate(args []string) int {
 		return 0
 	}
 
-	// Run preflight checks
+	// Check mode - lightweight, no preflight checks needed
+	if cfg.Check {
+		fmt.Println("==> Checking for updates...")
+		// TODO: Implement actual update check
+		fmt.Println("✓ You are running the latest version")
+		return 0
+	}
+
+	// Dry run mode - still run preflight checks for validation
+	if cfg.DryRun {
+		fmt.Println("==> Running preflight checks (dry-run mode)...")
+		if err := update.RunChecks(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Preflight checks failed: %v\n", err)
+			return 1
+		}
+		fmt.Println("✓ Preflight checks passed")
+		fmt.Println("==> Dry run mode - no changes will be made")
+		fmt.Println("This would update to the latest stable version")
+		return 0
+	}
+
+	// Run preflight checks for actual update
 	fmt.Println("==> Running preflight checks...")
 	if err := update.RunChecks(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Preflight checks failed: %v\n", err)
 		return 1
 	}
 	fmt.Println("✓ Preflight checks passed")
-
-	// Check mode
-	if cfg.Check {
-		fmt.Println("==> Checking for updates...")
-		// TODO: Implement check mode
-		fmt.Println("✓ You are running the latest version")
-		return 0
-	}
-
-	// Dry run mode
-	if cfg.DryRun {
-		fmt.Println("==> Dry run mode - no changes will be made")
-		fmt.Println("This would update to the latest stable version")
-		return 0
-	}
 
 	// Create backup
 	if !cfg.SkipBackup {
@@ -209,11 +216,13 @@ func runUpdate(args []string) int {
 	// Build
 	fmt.Println("==> Building update...")
 	buildCfg := &update.BuildConfig{
-		Version:     cfg.Version,
-		Channel:     cfg.Channel,
-		SkipFetch:   cfg.SkipFetch,
+		Version:      cfg.Version,
+		Channel:      cfg.Channel,
+		SkipFetch:    cfg.SkipFetch,
 		SkipFrontend: false,
-		Verbose:     cfg.Verbose,
+		Verbose:      cfg.Verbose,
+		ForceReset:   forceReset,
+		StashLocal:   stashLocal,
 	}
 
 	result, err := update.Build(buildCfg)

@@ -19,6 +19,8 @@ type BuildConfig struct {
 	SkipFetch    bool    // Skip git fetch
 	SkipFrontend bool    // Skip frontend build
 	Verbose      bool    // Verbose output
+	ForceReset   bool    // Force git reset --hard (discards local changes)
+	StashLocal   bool    // Stash local changes before fetch
 }
 
 // BuildResult contains the result of a build operation.
@@ -42,7 +44,7 @@ func Build(cfg *BuildConfig) (*BuildResult, error) {
 
 	// Step 1: Fetch source
 	if !cfg.SkipFetch {
-		if err := fetchSource(buildDir, cfg.Version, cfg.Channel); err != nil {
+		if err := fetchSource(buildDir, cfg.Version, cfg.Channel, cfg.ForceReset, cfg.StashLocal); err != nil {
 			result.Error = fmt.Errorf("fetch source: %w", err)
 			return result, result.Error
 		}
@@ -78,25 +80,63 @@ func Build(cfg *BuildConfig) (*BuildResult, error) {
 }
 
 // fetchSource fetches the source code from git.
-func fetchSource(buildDir, version string, channel Channel) error {
+func fetchSource(buildDir, version string, channel Channel, forceReset, stashLocal bool) error {
 	// Clone or update the repo
 	repoURL := "https://github.com/orvixpanel/orvixpanel.git"
 
 	if _, err := os.Stat(filepath.Join(buildDir, ".git")); err == nil {
-		// Repo exists, pull latest
-		log.Info().Msg("Updating existing source...")
-		cmds := [][]string{
-			{"git", "fetch", "--all", "--tags"},
-			{"git", "reset", "--hard", "HEAD"},
-			{"git", "clean", "-fd"},
+		// Repo exists, check for dirty working tree
+		cmd := exec.Command("git", "status", "--porcelain")
+		cmd.Dir = buildDir
+		output, _ := cmd.Output()
+		isDirty := len(strings.TrimSpace(string(output))) > 0
+
+		if isDirty && !forceReset && !stashLocal {
+			return fmt.Errorf("working tree has local modifications; refusing to fetch. "+
+				"Options: --force-reset (discard changes) or --stash-local (save changes)")
 		}
-		for _, args := range cmds {
-			cmd := exec.Command(args[0], args[1:]...)
-			cmd.Dir = buildDir
-			if out, err := cmd.CombinedOutput(); err != nil {
-				return fmt.Errorf("git %s: %s: %w", args[1], string(out), err)
+
+		log.Info().Msg("Updating existing source...")
+
+		// Handle dirty working tree
+		if isDirty {
+			if stashLocal {
+				log.Info().Msg("Stashing local changes...")
+				cmd = exec.Command("git", "stash", "push", "-m", "orvixpanel-update-autostash")
+				cmd.Dir = buildDir
+				cmd.Stdout = &bytes.Buffer{}
+				cmd.Stderr = &bytes.Buffer{}
+				if out, err := cmd.CombinedOutput(); err != nil {
+					return fmt.Errorf("git stash push: %s: %w", string(out), err)
+				}
+				log.Info().Msg("Local changes stashed")
+			} else if forceReset {
+				log.Warn().Msg("Force reset enabled; discarding local changes...")
+				cmd = exec.Command("git", "reset", "--hard", "HEAD")
+				cmd.Dir = buildDir
+				cmd.Stdout = &bytes.Buffer{}
+				cmd.Stderr = &bytes.Buffer{}
+				if out, err := cmd.CombinedOutput(); err != nil {
+					return fmt.Errorf("git reset --hard: %s: %w", string(out), err)
+				}
 			}
 		}
+
+		// Fetch latest
+		cmd = exec.Command("git", "fetch", "--all", "--tags")
+		cmd.Dir = buildDir
+		cmd.Stdout = &bytes.Buffer{}
+		cmd.Stderr = &bytes.Buffer{}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git fetch: %s: %w", string(out), err)
+		}
+
+		// Clean untracked files
+		cmd = exec.Command("git", "clean", "-fd")
+		cmd.Dir = buildDir
+		cmd.Stdout = &bytes.Buffer{}
+		cmd.Stderr = &bytes.Buffer{}
+		cmd.Run() // Best effort
 	} else {
 		// Fresh clone
 		log.Info().Msg("Cloning repository...")
@@ -198,7 +238,8 @@ func buildBackend(srcDir string, verbose bool) (string, error) {
 	log.Info().Msg("Building backend...")
 
 	p := GetInstallPaths()
-	outputBin := filepath.Join(p.Bin, LinuxBinary)
+	// Build to .new for atomic replacement
+	outputBin := filepath.Join(p.Bin, BinaryName+".new")
 
 	// Ensure output directory
 	os.MkdirAll(p.Bin, 0o755)
@@ -369,40 +410,108 @@ func Install(binaryPath string) (*InstallResult, error) {
 	result := &InstallResult{BinaryPath: binaryPath}
 
 	p := GetInstallPaths()
+	installPath := filepath.Join(p.Bin, BinaryName)
+	backupPath := filepath.Join(p.Bin, BinaryName+".backup")
 
-	// Step 1: Stop service
+	// Step 1: Stop service FIRST (critical - must stop before replacing binary)
 	log.Info().Msg("Stopping orvixpanel service...")
 	if err := stopService(); err != nil {
 		result.Error = fmt.Errorf("stop service: %w", err)
 		return result, result.Error
 	}
 
-	// Step 2: Install binary
-	installPath := filepath.Join(p.Bin, BinaryName)
+	// Give the service a moment to fully release the binary
+	time.Sleep(500 * time.Millisecond)
+
+	// Step 2: Remove old backup if exists
+	os.Remove(backupPath)
+
+	// Step 3: Backup current binary (if exists)
+	if _, err := os.Stat(installPath); err == nil {
+		log.Info().Msg("Backing up current binary...")
+		if err := os.Rename(installPath, backupPath); err != nil {
+			// Try copy if rename fails (different filesystem)
+			if err := copyFileSimple(installPath, backupPath); err != nil {
+				result.Error = fmt.Errorf("backup binary: %w", err)
+				// Try to restore service anyway
+				startService()
+				return result, result.Error
+			}
+		}
+	}
+
+	// Step 4: Install new binary (from .new location to final location)
+	log.Info().Msg("Installing new binary...")
 	if err := os.Rename(binaryPath, installPath); err != nil {
 		// Try copy if rename fails (different filesystem)
 		if err := copyFileSimple(binaryPath, installPath); err != nil {
 			result.Error = fmt.Errorf("install binary: %w", err)
+			// Try to rollback from backup
+			if _, err := os.Stat(backupPath); err == nil {
+				log.Warn().Msg("Rolling back from backup...")
+				os.Rename(backupPath, installPath)
+			}
+			startService()
 			return result, result.Error
 		}
 	}
 	os.Chmod(installPath, 0o755)
 
-	// Step 3: Save version file
+	// Step 5: Reload systemd daemon (picks up any unit file changes)
+	log.Info().Msg("Reloading systemd daemon...")
+	if err := reloadSystemd(); err != nil {
+		log.Warn().Err(err).Msg("systemd daemon-reload failed (non-critical)")
+	}
+
+	// Step 6: Save version file
 	versionInfo, _ := getVersionInfo(filepath.Dir(installPath))
 	versionFile := filepath.Join(p.Base, "VERSION")
 	versionContent := fmt.Sprintf("tag=%s\ncommit=%s\ndate=%s\nbuilt=%s\n",
 		versionInfo.Tag, versionInfo.Commit, versionInfo.Date, time.Now().UTC().Format(time.RFC3339))
 	os.WriteFile(versionFile, []byte(versionContent), 0o644)
 
-	// Step 4: Start service
+	// Step 7: Start service
 	log.Info().Msg("Starting orvixpanel service...")
 	if err := startService(); err != nil {
 		result.Error = fmt.Errorf("start service: %w", err)
+		// Try to rollback from backup
+		if _, err := os.Stat(backupPath); err == nil {
+			log.Warn().Msg("Service failed to start, rolling back from backup...")
+			stopService()
+			time.Sleep(500 * time.Millisecond)
+			os.Remove(installPath)
+			os.Rename(backupPath, installPath)
+			os.Chmod(installPath, 0o755)
+			reloadSystemd()
+			startService()
+			result.Error = fmt.Errorf("service failed to start with new binary, rolled back to backup: %w", err)
+			return result, result.Error
+		}
 		return result, result.Error
 	}
 
-	// Step 5: Self-heal
+	// Step 8: Verify health
+	log.Info().Msg("Verifying installation health...")
+	if err := VerifyHealth(); err != nil {
+		log.Warn().Err(err).Msg("Health check failed, attempting rollback...")
+		// Rollback on health failure
+		stopService()
+		time.Sleep(500 * time.Millisecond)
+		if _, err := os.Stat(backupPath); err == nil {
+			os.Remove(installPath)
+			os.Rename(backupPath, installPath)
+			os.Chmod(installPath, 0o755)
+			reloadSystemd()
+			startService()
+			result.Error = fmt.Errorf("health check failed, rolled back to backup: %w", err)
+			return result, result.Error
+		}
+	}
+
+	// Step 9: Remove backup after successful health check
+	os.Remove(backupPath)
+
+	// Step 10: Self-heal
 	if err := SelfHeal(); err != nil {
 		log.Warn().Err(err).Msg("Self-heal had warnings")
 	}
