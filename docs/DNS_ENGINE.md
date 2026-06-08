@@ -1,6 +1,11 @@
-# DNS Engine — v0.4.0
+# DNS Engine — v0.4.0 (Preview)
+
+**Classification: PREVIEW ONLY**
+**Tag: v0.4.0-dns-api-preview**
 
 SQLite-first DNS zone and record management with optional PowerDNS synchronization.
+
+> **IMPORTANT**: This is a preview release. PowerDNS integration has NOT been verified against a live server. No dig queries have been executed. DNS resolution is not available. See v0.4.1 for DNS frontend and v0.4.2 for PowerDNS live integration.
 
 ## Overview
 
@@ -242,12 +247,15 @@ curl -X POST http://localhost:8080/api/v1/dns/validate \
   }'
 ```
 
-## Limitations (v0.4.0)
+## Limitations (v0.4.0 - Preview)
 
 - **No DNSSEC**: DNSSEC signing not implemented
 - **No public DNS queries**: Local lookup only (no recursive resolver)
 - **No zone transfers**: AXFR/IXFR not supported
 - **No secondary zones**: Slave zone support is stub-only
+- **No DNS frontend**: React UI not built yet
+- **No PowerDNS live verification**: Code exists but not tested against real server
+- **No dig queries**: dig not installed in sandbox
 
 ## Future Phases
 

@@ -1,41 +1,55 @@
-# Release Notes — v0.4.0-dns-engine
+# Release Notes — v0.4.0-dns-api-preview
 
 **Released:** June 2026
-**Tag:** `v0.4.0-dns-engine`
+**Tag:** `v0.4.0-dns-api-preview`
+**Classification:** PREVIEW ONLY — Not production-ready for DNS resolution
 
-## Highlights
+---
 
-v0.4.0 introduces the **DNS Engine**, a SQLite-first DNS zone and record management system with optional PowerDNS synchronization.
+## IMPORTANT: Preview Classification
 
-### New Features
+**v0.4.0 is DNS API Preview — SQLite storage and validation only. PowerDNS not live-verified.**
 
-#### DNS Zone Management
-- Create, read, update, and delete DNS zones
-- Support for native, master, and slave zone types
-- Configurable SOA parameters (refresh, retry, expire, minimum)
-- Zone status tracking (active, suspended, pending)
+This release provides the DNS REST API layer with SQLite-backed storage. The PowerDNS synchronization code exists but has **NOT been verified against a live PowerDNS server**. No dig queries have been executed. No zone propagation has been tested.
 
-#### DNS Record Management
-- Full CRUD operations for DNS records
-- Support for 8 record types: A, AAAA, CNAME, MX, TXT, NS, SRV, CAA
-- TTL validation (60-86400 seconds)
-- Priority support for MX and SRV records
-- Enable/disable individual records
+Do NOT claim DNS Engine complete. This is an API layer only.
 
-#### Zone Templates
-- Create reusable zone templates with predefined record sets
-- Apply templates to new or existing zones
-- JSON-based record definitions
+---
 
-#### PowerDNS Integration (Optional)
-- Automatic sync to PowerDNS when ORVIX_POWERDNS_URL is set
-- Zone and record synchronization
-- Falls back to local-only mode when PowerDNS is not configured
+## What Is Included (Working)
 
-#### Record Validation
-- Real-time validation without creating records
-- Type-specific content validation (IPv4, IPv6, hostname, etc.)
-- RFC-compliant format checking
+- DNS REST API endpoints (zones, records, templates, validate, lookup)
+- SQLite storage via GORM AutoMigrate
+- Record validation (A, AAAA, CNAME, MX, TXT, NS, SRV, CAA)
+- 54 unit tests (validator, service, PowerDNS client mocks)
+- Smoke test: scripts/smoke-dns-local.sh
+- Local-only mode (no PowerDNS required)
+
+---
+
+## What Is NOT Included (Not Verified)
+
+- **No DNS resolution**: dig not installed, no real DNS queries
+- **No PowerDNS live integration**: PowerDNS not installed
+- **No DNS frontend**: No React UI for DNS management
+- **No zone propagation**: DNS not serving real queries
+- **No DNSSEC**: Not implemented
+- **No zone transfer**: AXFR/IXFR not supported
+
+---
+
+## Why Preview Only
+
+| Gate | Status | Reason |
+|------|--------|--------|
+| GitHub push | BLOCKED | No credentials in sandbox |
+| Frontend build | FAILED | Pre-existing TS errors in SystemHealth.tsx, router.tsx |
+| PowerDNS integration | NOT VERIFIED | PowerDNS not installed |
+| dig queries | NOT VERIFIED | dig not installed |
+| DNS resolution | NOT VERIFIED | No live DNS server |
+| Frontend DNS UI | NOT BUILT | v0.4.0 is backend-only |
+
+---
 
 ## API Changes
 
@@ -74,6 +88,8 @@ v0.4.0 introduces the **DNS Engine**, a SQLite-first DNS zone and record managem
 | dns.validate | Validate records |
 | dns.lookup | Lookup records |
 
+---
+
 ## Database Migration
 
 Three new tables are created via GORM AutoMigrate:
@@ -82,47 +98,55 @@ Three new tables are created via GORM AutoMigrate:
 2. dns_records — Per-zone DNS records
 3. dns_zone_templates — Reusable zone templates
 
+---
+
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| ORVIX_POWERDNS_URL | PowerDNS API URL (optional) |
-| ORVIX_POWERDNS_API_KEY | PowerDNS API key (optional) |
-| ORVIX_POWERDNS_SERVER_ID | PowerDNS server ID (default: localhost) |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ORVIX_POWERDNS_URL` | No | PowerDNS API URL (optional) |
+| `ORVIX_POWERDNS_API_KEY` | No | PowerDNS API key (optional) |
+| `ORVIX_POWERDNS_SERVER_ID` | No | PowerDNS server ID (default: localhost) |
 
-## Breaking Changes
+When `ORVIX_POWERDNS_URL` and `ORVIX_POWERDNS_API_KEY` are both set, the DNS Engine operates in **sync mode**. When either is missing, it operates in **local-only mode** (preview).
 
-None. v0.4.0 is fully backward compatible with v0.3.1.
-
-## Bug Fixes
-
-N/A — Initial release of DNS Engine.
-
-## Deprecations
-
-None.
-
-## Security
-
-- All DNS endpoints require JWT authentication
-- Tenant isolation enforced at the service layer
-- Input validation prevents malformed DNS data
-- Audit logging for all zone and record operations
+---
 
 ## Testing
 
-- 54 new unit tests for DNS package
-- Coverage for validator, service, and PowerDNS client
-- Smoke test script: scripts/smoke-dns-local.sh
+- 54 unit tests for DNS package (validator, service, PowerDNS client mocks)
+- Smoke test: `scripts/smoke-dns-local.sh`
+- Tests use httptest for PowerDNS client (mock server only)
 
-## Documentation
+**Note**: No integration tests against real PowerDNS server.
 
-- docs/DNS_ENGINE.md — Complete DNS Engine documentation
-- API usage examples and configuration guide
+---
+
+## Next Releases
+
+### v0.4.1 — DNS Frontend
+
+- DNS navigation in sidebar
+- DNS zones page (list/create/delete zones)
+- Zone detail view with records table
+- Add/edit record modal
+- Templates page
+- **Prerequisite**: Frontend npm run typecheck must pass
+
+### v0.4.2 — PowerDNS Live Integration
+
+- Install PowerDNS server
+- Configure PowerDNS API
+- Create zone through Orvix API
+- Verify zone appears in PowerDNS
+- Create A record
+- Verify with dig
+- Delete zone
+- Verify NXDOMAIN
+
+---
 
 ## Upgrade Notes
-
-Upgrade from v0.3.1 to v0.4.0:
 
 ```bash
 # Pull latest code
@@ -137,10 +161,8 @@ sudo systemctl restart orvixpanel
 
 The GORM AutoMigrate will automatically create the new DNS tables.
 
+---
+
 ## Contributors
 
 - OrvixPanel Core Team
-
-## Next Release
-
-- v0.4.1: DNSSEC signing and validation (planned)
