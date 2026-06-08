@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OrvixPanel v0.2.2 doctor — health check.
+# OrvixPanel v0.7.1 doctor — comprehensive health check.
 #
 # Checks (each is OK / WARN / FAIL):
 #   - binary installed
@@ -11,6 +11,9 @@
 #   - php-fpm installed + active
 #   - port 80, 443, 8443 availability
 #   - /healthz endpoint reachable
+#   - database tables (AutoMigrate verification)
+#   - recent error logs
+#   - public proxy test
 #
 # Exit code: 0 if all checks OK, 1 if any FAIL, 2 if only WARNs.
 #
@@ -28,7 +31,7 @@ for arg in "$@"; do
   case "$arg" in
     --json) JSON_MODE=1 ;;
     --help|-h)
-      sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -114,10 +117,12 @@ port_in_use() {
 # -----------------------------------------------------------------------------
 HOSTNAME_FQDN=$(hostname 2>/dev/null || echo unknown)
 DATE_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+ORVIX_VERSION=$(/opt/orvixpanel/bin/orvixpanel version 2>/dev/null | head -1 || echo "unknown")
 
 if [ "$JSON_MODE" -eq 0 ]; then
-  bold "OrvixPanel doctor"; rst
+  bold "OrvixPanel doctor v0.7.1"; rst
   echo "  host: ${HOSTNAME_FQDN}"
+  echo "  version: ${ORVIX_VERSION}"
   echo "  date: ${DATE_ISO}"
   echo
 fi
@@ -155,18 +160,24 @@ fi
 # -----------------------------------------------------------------------------
 # 3. env file
 # -----------------------------------------------------------------------------
-if [ -r /etc/orvixpanel/orvixpanel.env ]; then
-  bind=$(grep -E '^ORVIX_SERVER_BIND_ADDR=' /etc/orvixpanel/orvixpanel.env | head -1 | cut -d= -f2)
-  fpmv=$(grep -E '^ORVIX_FPM_VERSION=' /etc/orvixpanel/orvixpanel.env | head -1 | cut -d= -f2)
-  record OK "env file" "bind=${bind:-unset} fpm=${fpmv:-unset}"
+ENV_FILE="/opt/orvixpanel/etc/orvixpanel.env"
+if [ -r "$ENV_FILE" ]; then
+  bind=$(grep -E '^ORVIX_BIND=' "$ENV_FILE" | head -1 | cut -d= -f2)
+  record OK "env file" "bind=${bind:-unset} (${ENV_FILE})"
 else
-  record FAIL "env file" "/etc/orvixpanel/orvixpanel.env missing"
+  # Fallback to old location
+  if [ -r /etc/orvixpanel/orvixpanel.env ]; then
+    bind=$(grep -E '^ORVIX_BIND=' /etc/orvixpanel/orvixpanel.env | head -1 | cut -d= -f2)
+    record OK "env file" "bind=${bind:-unset} (/etc/orvixpanel/orvixpanel.env)"
+  else
+    record FAIL "env file" "no env file found"
+  fi
 fi
 
 # -----------------------------------------------------------------------------
 # 4. data dirs
 # -----------------------------------------------------------------------------
-for d in /var/lib/orvixpanel /var/log/orvixpanel /run/orvixpanel; do
+for d in /opt/orvixpanel/var /opt/orvixpanel/var/log /run/orvixpanel; do
   if [ -d "$d" ]; then
     perms=$(stat -c%a "$d" 2>/dev/null || stat -f%Lp "$d")
     owner=$(stat -c%U "$d" 2>/dev/null || stat -f%Su "$d")
@@ -214,7 +225,7 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 7. php-fpm
+# 7. php-fpm (optional, for legacy PHP sites)
 # -----------------------------------------------------------------------------
 FPM_VER=$(detect_fpm)
 FPM_BIN="${FPM_VER:+php-fpm}${FPM_VER:+$FPM_VER}"
@@ -223,13 +234,13 @@ if [ -n "$FPM_VER" ] && command -v "$FPM_BIN" >/dev/null 2>&1; then
     if systemctl is-active "php${FPM_VER}-fpm" >/dev/null 2>&1; then
       record OK "php-fpm" "version=$FPM_VER active"
     else
-      record FAIL "php-fpm" "version=$FPM_VER installed but not active"
+      record WARN "php-fpm" "version=$FPM_VER installed but not active"
     fi
   else
     record WARN "php-fpm" "version=$FPM_VER installed; systemd not running"
   fi
 else
-  record FAIL "php-fpm" "no php*-fpm binary found"
+  record OK "php-fpm" "not installed (optional for v0.7+)"
 fi
 
 # -----------------------------------------------------------------------------
@@ -237,7 +248,9 @@ fi
 # -----------------------------------------------------------------------------
 for p in 80 443 8443; do
   if port_in_use "$p"; then
-    record WARN "port $p" "in use by another process"
+    # Check if it's our service or something else
+    proc=$(ss -tlnp "( sport = :$p )" 2>/dev/null | grep ":$p" | awk '{print $6}' | head -1)
+    record WARN "port $p" "in use${proc:+ by $proc}"
   else
     record OK "port $p" "free"
   fi
@@ -246,8 +259,8 @@ done
 # -----------------------------------------------------------------------------
 # 9. healthz
 # -----------------------------------------------------------------------------
-bind=$(grep -E '^ORVIX_SERVER_BIND_ADDR=' /etc/orvixpanel/orvixpanel.env 2>/dev/null | head -1 | cut -d= -f2)
-if [ -z "$bind" ]; then bind="0.0.0.0:8443"; fi
+bind=$(grep -E '^ORVIX_BIND=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2)
+if [ -z "$bind" ]; then bind="0.0.0.0:8080"; fi
 host=$(echo "$bind" | cut -d: -f1)
 [ "$host" = "0.0.0.0" ] && host=127.0.0.1
 port=$(echo "$bind" | cut -d: -f2)
@@ -255,6 +268,111 @@ if curl -fsS --max-time 3 "http://${host}:${port}/healthz" 2>/dev/null | grep -q
   record OK "healthz" "http://${host}:${port}/healthz"
 else
   record FAIL "healthz" "no response at http://${host}:${port}/healthz"
+fi
+
+# -----------------------------------------------------------------------------
+# 10. database tables
+# -----------------------------------------------------------------------------
+DB_PATH=$(grep -E '^ORVIX_DB_PATH=' "$ENV_FILE" 2>/dev/null | cut -d= -f2)
+if [ -z "$DB_PATH" ]; then
+  DB_PATH="/opt/orvixpanel/var/orvixpanel.db"
+fi
+
+if [ -f "$DB_PATH" ]; then
+  # Check for key tables from AutoMigrate
+  required_tables=(
+    "tenants" "users" "accounts" "audit_entries"
+    "api_keys" "custom_roles" "secrets"
+    "dns_zones" "dns_records"
+    "ssl_certificates" "ssl_events"
+    "mail_domains" "mailboxes"
+    "backup_jobs" "restore_points"
+  )
+
+  missing_tables=()
+  for table in "${required_tables[@]}"; do
+    if ! sqlite3 "$DB_PATH" "SELECT name FROM sqlite_master WHERE type='table' AND name='${table}';" 2>/dev/null | grep -q "$table"; then
+      missing_tables+=("$table")
+    fi
+  done
+
+  if [ ${#missing_tables[@]} -eq 0 ]; then
+    record OK "db tables" "all ${#required_tables[@]} expected tables present"
+  else
+    record WARN "db tables" "${#missing_tables[@]} tables missing: ${missing_tables[*]}"
+  fi
+else
+  record WARN "db" "database not found at $DB_PATH"
+fi
+
+# -----------------------------------------------------------------------------
+# 11. recent error logs
+# -----------------------------------------------------------------------------
+ERROR_LOG="/opt/orvixpanel/var/log/orvixpanel_error.log"
+if [ -f "$ERROR_LOG" ]; then
+  recent_errors=$(tail -50 "$ERROR_LOG" 2>/dev/null | grep -c "ERROR\|FATAL\|PANIC" || echo 0)
+  if [ "$recent_errors" -gt 0 ]; then
+    last_error=$(tail -5 "$ERROR_LOG" 2>/dev/null | grep -m1 "ERROR\|FATAL\|PANIC" | head -c 100)
+    record WARN "error log" "$recent_errors recent errors (last: ${last_error}…)"
+  else
+    record OK "error log" "no recent errors"
+  fi
+else
+  record OK "error log" "no error log file (healthy)"
+fi
+
+# -----------------------------------------------------------------------------
+# 12. systemd service logs (last 10 lines)
+# -----------------------------------------------------------------------------
+if command -v journalctl >/dev/null 2>&1; then
+  recent_failures=$(journalctl -u orvixpanel --since "1 hour ago" --priority err -n 50 2>/dev/null | wc -l)
+  if [ "$recent_failures" -gt 0 ]; then
+    record WARN "journal" "$recent_failures error lines in last hour"
+  else
+    record OK "journal" "no recent errors in journal"
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# 13. public proxy test (if nginx is configured for public)
+# -----------------------------------------------------------------------------
+PUBLIC_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || echo "")
+if [ -n "$PUBLIC_IP" ]; then
+  if curl -fsS --max-time 5 "http://${PUBLIC_IP}/" -o /dev/null 2>/dev/null; then
+    record OK "public proxy" "port 80 publicly accessible"
+  else
+    record WARN "public proxy" "port 80 not accessible from public (may be firewalled)"
+  fi
+else
+  record OK "public proxy" "could not determine public IP"
+fi
+
+# -----------------------------------------------------------------------------
+# 14. backup directory
+# -----------------------------------------------------------------------------
+BACKUP_DIR="/opt/orvixpanel/var/backups"
+if [ -d "$BACKUP_DIR" ]; then
+  backup_count=$(find "$BACKUP_DIR" -maxdepth 1 -type d 2>/dev/null | wc -l)
+  backup_count=$((backup_count - 1))  # subtract the dir itself
+  if [ "$backup_count" -gt 0 ]; then
+    latest_backup=$(find "$BACKUP_DIR" -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)
+    record OK "backups" "$backup_count backup(s) available"
+  else
+    record WARN "backups" "no backups found"
+  fi
+else
+  record WARN "backups" "backup directory not present"
+fi
+
+# -----------------------------------------------------------------------------
+# 15. version file
+# -----------------------------------------------------------------------------
+VERSION_FILE="/opt/orvixpanel/VERSION"
+if [ -f "$VERSION_FILE" ]; then
+  version_info=$(cat "$VERSION_FILE" 2>/dev/null | head -3 | tr '\n' ' ')
+  record OK "version file" "$version_info"
+else
+  record WARN "version file" "VERSION file not found"
 fi
 
 # -----------------------------------------------------------------------------
@@ -283,6 +401,8 @@ else
     WARN) yellow "  OrvixPanel is healthy with warnings."; rst ;;
     FAIL) red    "  OrvixPanel is NOT healthy."; rst ;;
   esac
+  echo
+  echo "  Run 'orvixpanel update --check' to check for updates"
 fi
 
 case "$state" in

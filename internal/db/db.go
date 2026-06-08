@@ -59,6 +59,9 @@ func Open(cfg config.DBConfig) (*gorm.DB, error) {
 // v0.1.0: 5 tables (tenant, user, user_session, account, audit_entry)
 // v0.3.0: +5 tables (api_key, custom_role, secret, tenant_quota, license_store)
 // v0.4.0: +3 tables (dns_zone, dns_record, dns_zone_template)
+// v0.5.0: +4 tables (ssl_certificate, ssl_event, acme_account, ssl_challenge)
+// v0.6.0: +6 tables (mail_domain, mailbox, mail_alias, mail_forwarder, mail_rate_limit, mail_audit_log)
+// v0.7.0: +5 tables (backup_job, backup_file, restore_point, backup_config, backup_schedule)
 func Migrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(
 		&models.Tenant{},
@@ -76,6 +79,24 @@ func Migrate(db *gorm.DB) error {
 		&models.DNSZone{},
 		&models.DNSRecord{},
 		&models.DNSZoneTemplate{},
+		// v0.5.0 SSL Engine
+		&models.ACMEAccount{},
+		&models.SSLCertificate{},
+		&models.SSLEvent{},
+		&models.SSLChallenge{},
+		// v0.6.0 Mail Hosting Engine
+		&models.MailDomain{},
+		&models.Mailbox{},
+		&models.MailAlias{},
+		&models.MailForwarder{},
+		&models.MailRateLimit{},
+		&models.MailAuditLog{},
+		// v0.7.0 Backup Engine
+		&models.BackupJob{},
+		&models.BackupFile{},
+		&models.RestorePoint{},
+		&models.BackupConfig{},
+		&models.BackupSchedule{},
 	); err != nil {
 		return fmt.Errorf("automigrate: %w", err)
 	}
