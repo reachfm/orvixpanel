@@ -751,8 +751,30 @@ func GetUpdateInfo(channel Channel, version string) (*UpdateInfo, error) {
 	// Use current directory for git operations (works both in dev and production)
 	baseDir, _ := os.Getwd()
 
-	// Get installed version
+	// Get installed version - if empty, fall back to local git state
 	info.InstalledVersion = InstalledVersion()
+	if info.InstalledVersion.Commit == "" {
+		cmd := exec.Command("git", "rev-parse", "HEAD")
+		cmd.Dir = baseDir
+		if out, err := cmd.Output(); err == nil {
+			info.InstalledVersion.Commit = strings.TrimSpace(string(out))
+		}
+	}
+	// Always try to get v* tag for display (prefer semantic version over commit)
+	if info.InstalledVersion.Tag == "" {
+		cmd := exec.Command("git", "tag", "-l", "v*", "--sort=-version:refname")
+		cmd.Dir = baseDir
+		if out, err := cmd.Output(); err == nil {
+			tags := strings.Split(strings.TrimSpace(string(out)), "\n")
+			if len(tags) > 0 && tags[0] != "" {
+				info.InstalledVersion.Tag = tags[0]
+			}
+		}
+	}
+	// No tag, use short commit
+	if info.InstalledVersion.Tag == "" && len(info.InstalledVersion.Commit) > 8 {
+		info.InstalledVersion.Tag = info.InstalledVersion.Commit[:8]
+	}
 
 	// Fetch latest from origin first (best effort)
 	cmd := exec.Command("git", "fetch", "--all", "--tags")
@@ -779,15 +801,18 @@ func GetUpdateInfo(channel Channel, version string) (*UpdateInfo, error) {
 		info.RemoteHEAD = strings.TrimSpace(string(out))
 	}
 
-	// Get latest tag
-	cmd = exec.Command("git", "describe", "--tags", "--abbrev=0")
+	// Get latest v* tag (not nearest tag)
+	cmd = exec.Command("git", "tag", "-l", "v*", "--sort=-version:refname")
 	cmd.Dir = baseDir
 	if out, err := cmd.Output(); err == nil {
-		info.LatestTag = strings.TrimSpace(string(out))
+		tags := strings.Split(strings.TrimSpace(string(out)), "\n")
+		if len(tags) > 0 && tags[0] != "" {
+			info.LatestTag = tags[0]
+		}
 	}
 
-	// Check if dirty
-	cmd = exec.Command("git", "status", "--porcelain")
+	// Check if dirty (excluding VERSION and runtime files)
+	cmd = exec.Command("git", "status", "--porcelain", "-- ':!.VERSION' ':!/opt/orvixpanel/**'")
 	cmd.Dir = baseDir
 	if out, err := cmd.Output(); err == nil {
 		status := strings.TrimSpace(string(out))
@@ -840,25 +865,38 @@ func getRemoteHEADFromBase(base string) (Version, error) {
 	}
 
 	v := Version{Commit: strings.TrimSpace(string(output))}
-	cmd = exec.Command("git", "describe", "--tags", "--exact-match")
+
+	// Get latest v* tag (not nearest tag, but latest semantic version)
+	cmd = exec.Command("git", "tag", "-l", "v*", "--sort=-version:refname")
 	cmd.Dir = base
 	if tagOut, err := cmd.Output(); err == nil {
-		v.Tag = strings.TrimSpace(string(tagOut))
-	} else {
+		tags := strings.Split(strings.TrimSpace(string(tagOut)), "\n")
+		if len(tags) > 0 && tags[0] != "" {
+			v.Tag = tags[0]
+		}
+	}
+	// Fall back to short commit if no tag
+	if v.Tag == "" && len(v.Commit) > 8 {
 		v.Tag = v.Commit[:8]
 	}
 	return v, nil
 }
 
 func getLatestStableTagFromBase(base string) (Version, error) {
-	cmd := exec.Command("git", "describe", "--tags", "--abbrev=0")
+	// Get latest v* tag (not nearest tag, but latest semantic version)
+	cmd := exec.Command("git", "tag", "-l", "v*", "--sort=-version:refname")
 	cmd.Dir = base
 	output, err := cmd.Output()
 	if err != nil {
-		return Version{}, fmt.Errorf("git describe: %w", err)
+		return Version{}, fmt.Errorf("git tag: %w", err)
 	}
 
-	v := Version{Tag: strings.TrimSpace(string(output))}
+	tags := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(tags) == 0 || tags[0] == "" {
+		return Version{}, fmt.Errorf("no v* tags found")
+	}
+
+	v := Version{Tag: tags[0]}
 	cmd = exec.Command("git", "rev-parse", v.Tag)
 	cmd.Dir = base
 	if commitOut, err := cmd.Output(); err == nil {

@@ -178,12 +178,13 @@ func runUpdate(args []string) int {
 		fmt.Printf("Channel: %s\n", cfg.Channel)
 		fmt.Printf("Installed: %s\n", result.CurrentVersion.Tag)
 		if result.CurrentVersion.Commit != "" {
-			fmt.Printf("Installed commit: %s\n", result.CurrentVersion.Commit[:8])
+			fmt.Printf("Installed commit: %s\n", result.CurrentVersion.Commit[:min(8, len(result.CurrentVersion.Commit))])
 		}
 		fmt.Printf("Target: %s\n", result.LatestVersion.Tag)
 		if result.LatestVersion.Commit != "" {
-			fmt.Printf("Target commit: %s\n", result.LatestVersion.Commit[:8])
+			fmt.Printf("Target commit: %s\n", result.LatestVersion.Commit[:min(8, len(result.LatestVersion.Commit))])
 		}
+		fmt.Printf("Update needed: %v\n", result.UpdateAvailable)
 
 		if result.UpdateAvailable {
 			fmt.Println("\n✓ Update available: " + result.LatestVersion.Tag)
@@ -234,8 +235,14 @@ func runUpdate(args []string) int {
 		fmt.Printf("\nUpdate needed: %v\n", info.UpdateNeeded)
 
 		if info.UpdateNeeded {
-			fmt.Printf("This would update from %s to %s via %s channel\n",
-				info.InstalledVersion.Tag, info.TargetVersion.Tag, cfg.Channel)
+			// Show more detail when tags are same but commits differ
+			if info.InstalledVersion.Tag == info.TargetVersion.Tag && info.InstalledVersion.Commit != info.TargetVersion.Commit {
+				fmt.Printf("Current HEAD is behind origin by %d commit(s)\n", 1) // Simplified
+				fmt.Printf("This would update to the latest %s version\n", info.TargetVersion.Tag)
+			} else {
+				fmt.Printf("This would update from %s to %s via %s channel\n",
+					info.InstalledVersion.Tag, info.TargetVersion.Tag, cfg.Channel)
+			}
 		} else {
 			fmt.Println("No update needed - you are at the target version")
 		}

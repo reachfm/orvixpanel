@@ -218,12 +218,33 @@ func RecordUpdateResult(id string, toVersion Version, result string, backupID st
 func CheckForUpdates(channel Channel) (*CheckResult, error) {
 	result := &CheckResult{}
 
-	// Get installed version
-	current := InstalledVersion()
-	result.CurrentVersion = current
-
 	// Use current directory for git operations (works both in dev and production)
 	baseDir, _ := os.Getwd()
+
+	// Get installed version - if empty, fall back to local git state
+	current := InstalledVersion()
+	if current.Commit == "" {
+		// In dev mode, use local HEAD as "installed" version
+		cmd := exec.Command("git", "rev-parse", "HEAD")
+		cmd.Dir = baseDir
+		if out, err := cmd.Output(); err == nil {
+			current.Commit = strings.TrimSpace(string(out))
+		}
+		// Get latest v* tag (not nearest tag, but latest semantic version)
+		cmd = exec.Command("git", "tag", "-l", "v*", "--sort=-version:refname")
+		cmd.Dir = baseDir
+		if out, err := cmd.Output(); err == nil {
+			tags := strings.Split(strings.TrimSpace(string(out)), "\n")
+			if len(tags) > 0 && tags[0] != "" {
+				current.Tag = tags[0] // First tag is the latest v* tag
+			}
+		}
+		// No tag, use short commit
+		if current.Tag == "" && len(current.Commit) > 8 {
+			current.Tag = current.Commit[:8]
+		}
+	}
+	result.CurrentVersion = current
 
 	// Fetch latest from origin
 	cmd := exec.Command("git", "fetch", "--all", "--tags")
@@ -251,17 +272,22 @@ func CheckForUpdates(channel Channel) (*CheckResult, error) {
 
 		target.Commit = strings.TrimSpace(string(output))
 
-		// Get tag for this commit
-		cmd = exec.Command("git", "describe", "--tags", "--exact-match")
+		// Get latest v* tag (not nearest tag, but latest semantic version)
+		cmd = exec.Command("git", "tag", "-l", "v*", "--sort=-version:refname")
 		cmd.Dir = baseDir
-		if tagOut, err := cmd.Output(); err == nil {
-			target.Tag = strings.TrimSpace(string(tagOut))
-		} else {
+		if out, err := cmd.Output(); err == nil {
+			tags := strings.Split(strings.TrimSpace(string(out)), "\n")
+			if len(tags) > 0 && tags[0] != "" {
+				target.Tag = tags[0] // First tag is the latest v* tag
+			}
+		}
+		// Fall back to short commit if no tag found
+		if target.Tag == "" && len(target.Commit) > 8 {
 			target.Tag = target.Commit[:8]
 		}
 	} else {
-		// Stable: get latest semver tag
-		cmd = exec.Command("git", "describe", "--tags", "--abbrev=0")
+		// Stable: get latest v* tag
+		cmd = exec.Command("git", "tag", "-l", "v*", "--sort=-version:refname")
 		cmd.Dir = baseDir
 		output, err := cmd.Output()
 		if err != nil {
@@ -269,7 +295,12 @@ func CheckForUpdates(channel Channel) (*CheckResult, error) {
 			return result, nil
 		}
 
-		target.Tag = strings.TrimSpace(string(output))
+		tags := strings.Split(strings.TrimSpace(string(output)), "\n")
+		if len(tags) == 0 || tags[0] == "" {
+			result.UpdateAvailable = false
+			return result, nil
+		}
+		target.Tag = tags[0]
 
 		// Get commit for this tag
 		cmd = exec.Command("git", "rev-parse", target.Tag)
@@ -288,25 +319,37 @@ func CheckForUpdates(channel Channel) (*CheckResult, error) {
 }
 
 // CompareVersions compares two versions and returns true if update is needed.
+// Returns false when installed version equals target version.
 func CompareVersions(installed, target Version) bool {
-	// If commits are different, update is needed
+	// If we have commits for both, compare them (authoritative)
 	if installed.Commit != "" && target.Commit != "" {
-		if installed.Commit != target.Commit {
-			return true
+		// Compare full commits if both are full SHA
+		if len(installed.Commit) == 40 && len(target.Commit) == 40 {
+			return installed.Commit != target.Commit
 		}
+		// For short commits, do prefix comparison safely
+		minLen := len(installed.Commit)
+		if len(target.Commit) < minLen {
+			minLen = len(target.Commit)
+		}
+		return installed.Commit[:minLen] != target.Commit[:minLen]
 	}
 
-	// If installed has no tag but target does, update is needed
+	// If we have tags for both, compare them
+	if installed.Tag != "" && target.Tag != "" {
+		return installed.Tag != target.Tag
+	}
+
+	// If only target has commit info, we need update (installed is unknown/empty)
+	if installed.Commit == "" && target.Commit != "" {
+		return true
+	}
+
+	// If only target has tag info, we need update
 	if installed.Tag == "" && target.Tag != "" {
 		return true
 	}
 
-	// If both have tags, compare
-	if installed.Tag != "" && target.Tag != "" {
-		if installed.Tag != target.Tag {
-			return true
-		}
-	}
-
+	// No update needed if we get here (same commit or both empty)
 	return false
 }
