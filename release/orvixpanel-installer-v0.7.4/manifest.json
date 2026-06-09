@@ -1,0 +1,57 @@
+{
+  "version": "v0.7.4",
+  "release_date": "2026-06-10",
+  "description": "OrvixPanel v0.7.4 Production Installer",
+  "supported_oses": [
+    "Ubuntu 22.04 LTS",
+    "Ubuntu 24.04 LTS"
+  ],
+  "files": [
+    {
+      "path": "bin/orvixpanel.linux",
+      "description": "Linux amd64 binary",
+      "sha256": "0ac543d297ef1962367ca1b6e966b2d9d8267f7ae7196ecb3c8bce3f9107cc39",
+      "size": 18284728
+    },
+    {
+      "path": "scripts/install.sh",
+      "description": "Installation script",
+      "sha256": "48c8e6c61f608369ced8be698fe14b5422f8210e6f2051bbfece5fe15fe8f397",
+      "size": 13247
+    },
+    {
+      "path": "scripts/doctor.sh",
+      "description": "System diagnostics script",
+      "sha256": "9aec3d8875ae92227853ca62f1ef293ff771191d014295e3a27fc0bbd6ccc998",
+      "size": 8450
+    }
+  ],
+  "features": [
+    "Atomic VERSION file writing",
+    "Runtime config path fixes for VPS",
+    "Health endpoint fixes (127.0.0.1:8443)",
+    "Stale VERSION detection",
+    "Compare/version fix",
+    "Self-update preflight fixes"
+  ],
+  "directories_created": [
+    "/etc/orvixpanel",
+    "/var/lib/orvixpanel",
+    "/var/log/orvixpanel",
+    "/run/orvixpanel"
+  ],
+  "services_configured": [
+    "nginx",
+    "php-fpm",
+    "sqlite",
+    "systemd service"
+  ],
+  "verification_commands": [
+    "systemctl is-active orvixpanel",
+    "curl -fsS http://127.0.0.1:8443/healthz",
+    "curl -fsS http://127.0.0.1:8443/readyz",
+    "orvixpanel doctor -v"
+  ],
+  "commit_hash": "d907e52",
+  "git_tag": "v0.7.4"
+}
