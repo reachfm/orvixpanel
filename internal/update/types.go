@@ -1,10 +1,10 @@
 // Package update implements the OrvixPanel self-update engine.
 //
-// v0.7.3 First Real Self-Update + Backup Proof:
-//   - Proves update system can perform real safe updates
-//   - Validates backup creation before update installation
-//   - Confirms health verification and rollback capability
-//   - All v0.7.2 update infrastructure is now battle-tested
+// v0.7.4 First Real Self-Update Proof:
+//   - First production self-update with atomic VERSION writing
+//   - Proves update system writes VERSION only after health passes
+//   - Validates rollback restores VERSION on health failure
+//   - Proves update history is written correctly
 package update
 
 import (
