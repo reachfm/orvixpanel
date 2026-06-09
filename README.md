@@ -1,14 +1,21 @@
-# OrvixPanel v0.1.0 — Foundation Preview
+# OrvixPanel v0.7.4 — Production Hosting Control Panel
 
-> **Honest release name.** This is the **Foundation** (Phase 1 of
-> the spec) only. The full hosting panel is targeted for v0.5.0+.
-> See `NEXT_PHASE_PLAN.md` for the v0.2.0 roadmap and `BUILD_REPORT.md`
-> for the verification status.
+> **Latest release:** v0.7.4 with VPS runtime path fixes. See `CHANGELOG.md` for details.
 
 OrvixPanel is a single-binary, zero-runtime-dep, AI-native server
-control panel. v0.1.0 ships the **Foundation** slice of the spec
-(`OrvixPanel-MVP.md` §8 / Phase 1):
+control panel. v0.7.4 ships the **Core Hosting Engine** with self-update support.
 
+## Installation
+
+```bash
+curl -fsSL https://github.com/reachfm/orvixpanel/releases/download/v0.7.4/orvixpanel-installer-v0.7.4.tar.gz | tar -xz && sudo bash scripts/install.sh
+```
+
+**Binary Checksum:** `0ac543d297ef1962367ca1b6e966b2d9d8267f7ae7196ecb3c8bce3f9107cc39`
+
+**Supported OS:** Ubuntu 22.04 LTS, Ubuntu 24.04 LTS
+
+## Features
 - ✅ JWT auth (15m access, 30d refresh with rotation)
 - ✅ bcrypt password hashing + 10-char policy
 - ✅ 12 default RBAC roles + permission middleware
