@@ -184,6 +184,15 @@ func runUpdate(args []string) int {
 		if result.LatestVersion.Commit != "" {
 			fmt.Printf("Target commit: %s\n", result.LatestVersion.Commit[:min(8, len(result.LatestVersion.Commit))])
 		}
+
+		// Check for stale VERSION file (show in verbose mode)
+		if result.VersionStale && cfg.Verbose {
+			fmt.Println("\n⚠ WARNING: VERSION file is stale")
+			fmt.Printf("  VERSION commit: %s\n", result.VersionCommit[:min(8, len(result.VersionCommit))])
+			fmt.Println("  The VERSION file may not reflect the actual git state.")
+			fmt.Println("  This can happen after a git reset without proper update.")
+		}
+
 		fmt.Printf("Update needed: %v\n", result.UpdateAvailable)
 
 		if result.UpdateAvailable {
@@ -230,6 +239,15 @@ func runUpdate(args []string) int {
 			for _, f := range info.UncommittedFiles {
 				fmt.Printf("  %s\n", f)
 			}
+		}
+
+		// Check for stale VERSION file
+		if info.VersionStale && cfg.Verbose {
+			fmt.Println("\n⚠ WARNING: VERSION file is stale")
+			fmt.Printf("  VERSION commit: %s\n", info.VersionCommit[:min(8, len(info.VersionCommit))])
+			fmt.Printf("  Local HEAD:     %s\n", info.LocalHEAD[:min(8, len(info.LocalHEAD))])
+			fmt.Println("  The VERSION file may not reflect the actual git state.")
+			fmt.Println("  This can happen after a git reset without proper update.")
 		}
 
 		fmt.Printf("\nUpdate needed: %v\n", info.UpdateNeeded)

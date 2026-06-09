@@ -85,6 +85,8 @@ type CheckResult struct {
 	LatestVersion  Version
 	ReleaseNotes   string
 	ChangelogURL   string
+	VersionStale   bool   // True if VERSION file commit differs from local HEAD
+	VersionCommit  string // Commit from VERSION file (for comparison)
 }
 
 // RollbackPoint represents a point to which we can rollback.

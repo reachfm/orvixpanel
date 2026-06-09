@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -465,12 +466,18 @@ func Install(binaryPath string, channel Channel) (*InstallResult, error) {
 		log.Warn().Err(err).Msg("systemd daemon-reload failed (non-critical)")
 	}
 
-	// Step 6: Save version file with channel
-	versionInfo, _ := getVersionInfo(filepath.Dir(installPath))
+	// Step 6: Backup current VERSION file if exists (for rollback)
 	versionFile := filepath.Join(p.Base, "VERSION")
-	versionContent := fmt.Sprintf("tag=%s\ncommit=%s\ndate=%s\nbuilt=%s\nchannel=%s\n",
-		versionInfo.Tag, versionInfo.Commit, versionInfo.Date, time.Now().UTC().Format(time.RFC3339), channel)
-	os.WriteFile(versionFile, []byte(versionContent), 0o644)
+	versionBackup := versionFile + ".backup"
+	hasExistingVersion := false
+	if _, err := os.Stat(versionFile); err == nil {
+		data, err := os.ReadFile(versionFile)
+		if err == nil {
+			os.WriteFile(versionBackup, data, 0o644)
+			hasExistingVersion = true
+			log.Info().Msg("Backed up existing VERSION file")
+		}
+	}
 
 	// Step 7: Start service
 	log.Info().Msg("Starting orvixpanel service...")
@@ -505,15 +512,33 @@ func Install(binaryPath string, channel Channel) (*InstallResult, error) {
 			os.Chmod(installPath, 0o755)
 			reloadSystemd()
 			startService()
+			// Restore VERSION from backup on health failure rollback
+			if hasExistingVersion {
+				if data, err := os.ReadFile(versionBackup); err == nil {
+					os.WriteFile(versionFile, data, 0o644)
+					log.Info().Msg("Restored VERSION from backup")
+				}
+			}
 			result.Error = fmt.Errorf("health check failed, rolled back to backup: %w", err)
 			return result, result.Error
 		}
 	}
 
-	// Step 9: Remove backup after successful health check
+	// Step 9: Write VERSION file atomically (only after health passes)
+	versionInfo, _ := getVersionInfo(filepath.Dir(installPath))
+	if err := WriteVersionFile(versionInfo.Tag, versionInfo.Commit, string(channel), time.Now().UTC()); err != nil {
+		log.Warn().Err(err).Msg("Failed to write VERSION file (non-critical)")
+	}
+
+	// Step 10: Remove backup after successful health check
 	os.Remove(backupPath)
 
-	// Step 10: Self-heal
+	// Step 11: Remove VERSION backup after successful health check
+	if hasExistingVersion {
+		os.Remove(versionBackup)
+	}
+
+	// Step 12: Self-heal
 	if err := SelfHeal(); err != nil {
 		log.Warn().Err(err).Msg("Self-heal had warnings")
 	}
@@ -534,4 +559,62 @@ func startService() error {
 	cmd.Stdout = &bytes.Buffer{}
 	cmd.Stderr = &bytes.Buffer{}
 	return cmd.Run()
+}
+
+// WriteVersionFile atomically writes the VERSION file after a successful update.
+// It writes to VERSION.tmp first, fsyncs, renames to VERSION, and sets permissions.
+// This only happens AFTER health verification succeeds.
+func WriteVersionFile(tag, commit, channel string, buildDate time.Time) error {
+	p := GetInstallPaths()
+	versionFile := filepath.Join(p.Base, "VERSION")
+	tmpFile := versionFile + ".tmp"
+
+	// Content format as specified
+	content := fmt.Sprintf("version=%s\ncommit=%s\nchannel=%s\nbuild_date=%s\n",
+		tag, commit, channel, buildDate.UTC().Format(time.RFC3339))
+
+	// Write to temp file first
+	if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write VERSION.tmp: %w", err)
+	}
+
+	// Sync the temp file to disk (atomic guarantee)
+	f, err := os.Open(tmpFile)
+	if err != nil {
+		os.Remove(tmpFile)
+		return fmt.Errorf("open VERSION.tmp for fsync: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmpFile)
+		return fmt.Errorf("fsync VERSION.tmp: %w", err)
+	}
+	f.Close()
+
+	// Atomic rename to final location
+	if err := os.Rename(tmpFile, versionFile); err != nil {
+		os.Remove(tmpFile)
+		return fmt.Errorf("rename VERSION.tmp to VERSION: %w", err)
+	}
+
+	// Try to set ownership to orvixpanel:orvixpanel if user exists
+	if _, err := exec.LookPath("id"); err == nil {
+		cmd := exec.Command("id", "orvixpanel")
+		cmd.Stdout = &bytes.Buffer{}
+		cmd.Stderr = &bytes.Buffer{}
+		if cmd.Run() == nil {
+			// User exists, try to chown
+			if err := os.Chown(versionFile, syscall.Getuid(), syscall.Getgid()); err != nil {
+				log.Warn().Err(err).Msg("chown VERSION file failed (non-critical)")
+			}
+		}
+	}
+
+	// Set final permissions
+	if err := os.Chmod(versionFile, 0o644); err != nil {
+		return fmt.Errorf("chmod VERSION: %w", err)
+	}
+
+	log.Info().Str("version", tag).Str("commit", commit[:min(8, len(commit))]).Msg("VERSION file written atomically")
+	return nil
 }

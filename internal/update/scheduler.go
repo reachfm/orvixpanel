@@ -246,8 +246,32 @@ func CheckForUpdates(channel Channel) (*CheckResult, error) {
 	}
 	result.CurrentVersion = current
 
+	// Check for stale VERSION (commit differs from local HEAD)
+	// Get local HEAD for comparison
+	var localHead string
+	var cmd *exec.Cmd
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = baseDir
+	if out, err := cmd.Output(); err == nil {
+		localHead = strings.TrimSpace(string(out))
+	}
+
+	// Compare VERSION commit with local HEAD
+	if current.Commit != "" && localHead != "" {
+		result.VersionCommit = current.Commit
+		if len(current.Commit) >= 8 && len(localHead) >= 8 {
+			minLen := len(current.Commit)
+			if len(localHead) < minLen {
+				minLen = len(localHead)
+			}
+			if current.Commit[:minLen] != localHead[:minLen] {
+				result.VersionStale = true
+			}
+		}
+	}
+
 	// Fetch latest from origin
-	cmd := exec.Command("git", "fetch", "--all", "--tags")
+	cmd = exec.Command("git", "fetch", "--all", "--tags")
 	cmd.Dir = baseDir
 	cmd.Stdout = &bytes.Buffer{}
 	cmd.Stderr = &bytes.Buffer{}

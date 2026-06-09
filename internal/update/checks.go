@@ -733,15 +733,17 @@ func checkRuntimeVersion() PreflightCheck {
 }
 // UpdateInfo holds detailed update information for verbose output.
 type UpdateInfo struct {
-InstalledVersion Version
-TargetVersion    Version
-Channel          Channel
-UpdateNeeded     bool
-LocalHEAD        string
-RemoteHEAD       string
-LatestTag        string
-IsDirty          bool
-UncommittedFiles []string
+	InstalledVersion Version
+	TargetVersion    Version
+	Channel          Channel
+	UpdateNeeded     bool
+	LocalHEAD        string
+	RemoteHEAD       string
+	LatestTag        string
+	IsDirty          bool
+	UncommittedFiles []string
+	VersionStale     bool   // True if VERSION file commit differs from local HEAD
+	VersionCommit    string // Commit from VERSION file (for comparison)
 }
 
 // GetUpdateInfo returns detailed update information for verbose output.
@@ -788,6 +790,23 @@ func GetUpdateInfo(channel Channel, version string) (*UpdateInfo, error) {
 	cmd.Dir = baseDir
 	if out, err := cmd.Output(); err == nil {
 		info.LocalHEAD = strings.TrimSpace(string(out))
+	}
+
+	// Check for stale VERSION (commit differs from local HEAD)
+	// This happens when git reset was performed but VERSION wasn't updated
+	if info.InstalledVersion.Commit != "" && info.LocalHEAD != "" {
+		info.VersionCommit = info.InstalledVersion.Commit
+		// Compare commits (both should be full 40-char or same prefix)
+		if len(info.InstalledVersion.Commit) >= 8 && len(info.LocalHEAD) >= 8 {
+			// Use prefix comparison for safety
+			minLen := len(info.InstalledVersion.Commit)
+			if len(info.LocalHEAD) < minLen {
+				minLen = len(info.LocalHEAD)
+			}
+			if info.InstalledVersion.Commit[:minLen] != info.LocalHEAD[:minLen] {
+				info.VersionStale = true
+			}
+		}
 	}
 
 	// Get remote HEAD based on channel
