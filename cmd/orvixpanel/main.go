@@ -169,21 +169,77 @@ func runUpdate(args []string) int {
 	// Check mode - lightweight, no preflight checks needed
 	if cfg.Check {
 		fmt.Println("==> Checking for updates...")
-		// TODO: Implement actual update check
-		fmt.Println("✓ You are running the latest version")
+		result, err := update.CheckForUpdates(cfg.Channel)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+
+		fmt.Printf("Channel: %s\n", cfg.Channel)
+		fmt.Printf("Installed: %s\n", result.CurrentVersion.Tag)
+		if result.CurrentVersion.Commit != "" {
+			fmt.Printf("Installed commit: %s\n", result.CurrentVersion.Commit[:8])
+		}
+		fmt.Printf("Target: %s\n", result.LatestVersion.Tag)
+		if result.LatestVersion.Commit != "" {
+			fmt.Printf("Target commit: %s\n", result.LatestVersion.Commit[:8])
+		}
+
+		if result.UpdateAvailable {
+			fmt.Println("\n✓ Update available: " + result.LatestVersion.Tag)
+			return 0
+		}
+		fmt.Println("\n✓ You are running the latest version")
 		return 0
 	}
 
 	// Dry run mode - still run preflight checks for validation
 	if cfg.DryRun {
-		fmt.Println("==> Running preflight checks (dry-run mode)...")
-		if err := update.RunChecks(cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "Preflight checks failed: %v\n", err)
+		fmt.Println("==> Dry run mode - no changes will be made")
+		fmt.Printf("Channel: %s\n", cfg.Channel)
+		if cfg.Version != "" {
+			fmt.Printf("Target version: %s\n", cfg.Version)
+		}
+
+		// Get verbose update info
+		info, err := update.GetUpdateInfo(cfg.Channel, cfg.Version)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error getting update info: %v\n", err)
 			return 1
 		}
-		fmt.Println("✓ Preflight checks passed")
-		fmt.Println("==> Dry run mode - no changes will be made")
-		fmt.Println("This would update to the latest stable version")
+
+		fmt.Printf("Installed version: %s\n", info.InstalledVersion.Tag)
+		if info.InstalledVersion.Commit != "" {
+			fmt.Printf("Installed commit: %s\n", info.InstalledVersion.Commit[:min(8, len(info.InstalledVersion.Commit))])
+		}
+		fmt.Printf("Target version: %s\n", info.TargetVersion.Tag)
+		if info.TargetVersion.Commit != "" {
+			fmt.Printf("Target commit: %s\n", info.TargetVersion.Commit[:min(8, len(info.TargetVersion.Commit))])
+		}
+		if info.LocalHEAD != "" {
+			fmt.Printf("Local HEAD: %s\n", info.LocalHEAD[:min(8, len(info.LocalHEAD))])
+		}
+		if info.RemoteHEAD != "" {
+			fmt.Printf("Remote HEAD: %s\n", info.RemoteHEAD[:min(8, len(info.RemoteHEAD))])
+		}
+		fmt.Printf("Latest tag: %s\n", info.LatestTag)
+
+		if info.IsDirty {
+			fmt.Println("\n⚠ WARNING: Local working tree has uncommitted changes:")
+			for _, f := range info.UncommittedFiles {
+				fmt.Printf("  %s\n", f)
+			}
+		}
+
+		fmt.Printf("\nUpdate needed: %v\n", info.UpdateNeeded)
+
+		if info.UpdateNeeded {
+			fmt.Printf("This would update from %s to %s via %s channel\n",
+				info.InstalledVersion.Tag, info.TargetVersion.Tag, cfg.Channel)
+		} else {
+			fmt.Println("No update needed - you are at the target version")
+		}
+
 		return 0
 	}
 

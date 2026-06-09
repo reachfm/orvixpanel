@@ -731,3 +731,138 @@ func checkRuntimeVersion() PreflightCheck {
 
 	return check
 }
+// UpdateInfo holds detailed update information for verbose output.
+type UpdateInfo struct {
+InstalledVersion Version
+TargetVersion    Version
+Channel          Channel
+UpdateNeeded     bool
+LocalHEAD        string
+RemoteHEAD       string
+LatestTag        string
+IsDirty          bool
+UncommittedFiles []string
+}
+
+// GetUpdateInfo returns detailed update information for verbose output.
+func GetUpdateInfo(channel Channel, version string) (*UpdateInfo, error) {
+	info := &UpdateInfo{Channel: channel}
+
+	// Use current directory for git operations (works both in dev and production)
+	baseDir, _ := os.Getwd()
+
+	// Get installed version
+	info.InstalledVersion = InstalledVersion()
+
+	// Fetch latest from origin first (best effort)
+	cmd := exec.Command("git", "fetch", "--all", "--tags")
+	cmd.Dir = baseDir
+	cmd.Stdout = &bytes.Buffer{}
+	cmd.Stderr = &bytes.Buffer{}
+	cmd.Run() // Best effort
+
+	// Get local HEAD
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = baseDir
+	if out, err := cmd.Output(); err == nil {
+		info.LocalHEAD = strings.TrimSpace(string(out))
+	}
+
+	// Get remote HEAD based on channel
+	if channel == ChannelPreview {
+		cmd = exec.Command("git", "rev-parse", "origin/feature/v0.7.0-mail-hosting")
+	} else {
+		cmd = exec.Command("git", "rev-parse", "origin/stable")
+	}
+	cmd.Dir = baseDir
+	if out, err := cmd.Output(); err == nil {
+		info.RemoteHEAD = strings.TrimSpace(string(out))
+	}
+
+	// Get latest tag
+	cmd = exec.Command("git", "describe", "--tags", "--abbrev=0")
+	cmd.Dir = baseDir
+	if out, err := cmd.Output(); err == nil {
+		info.LatestTag = strings.TrimSpace(string(out))
+	}
+
+	// Check if dirty
+	cmd = exec.Command("git", "status", "--porcelain")
+	cmd.Dir = baseDir
+	if out, err := cmd.Output(); err == nil {
+		status := strings.TrimSpace(string(out))
+		info.IsDirty = len(status) > 0
+		if info.IsDirty {
+			for _, line := range strings.Split(status, "\n") {
+				if line != "" {
+					info.UncommittedFiles = append(info.UncommittedFiles, line)
+				}
+			}
+		}
+	}
+
+	// Get target version based on version parameter or channel
+	if version != "" {
+		// --version flag overrides: try exact tag first, then commit
+		cmd = exec.Command("git", "describe", "--tags", "--exact-match", "tags/"+version)
+		cmd.Dir = baseDir
+		if out, err := cmd.Output(); err == nil {
+			info.TargetVersion.Tag = strings.TrimSpace(string(out))
+		} else {
+			info.TargetVersion.Tag = version
+		}
+		cmd = exec.Command("git", "rev-parse", info.TargetVersion.Tag)
+		cmd.Dir = baseDir
+		if out, err := cmd.Output(); err == nil {
+			info.TargetVersion.Commit = strings.TrimSpace(string(out))
+		}
+	} else if channel == ChannelPreview {
+		info.TargetVersion, _ = getRemoteHEADFromBase(baseDir)
+	} else {
+		info.TargetVersion, _ = getLatestStableTagFromBase(baseDir)
+	}
+
+	info.UpdateNeeded = CompareVersions(info.InstalledVersion, info.TargetVersion)
+	return info, nil
+}
+
+func getRemoteHEADFromBase(base string) (Version, error) {
+	cmd := exec.Command("git", "rev-parse", "origin/feature/v0.7.0-mail-hosting")
+	cmd.Dir = base
+	output, err := cmd.Output()
+	if err != nil {
+		cmd = exec.Command("git", "rev-parse", "HEAD")
+		cmd.Dir = base
+		output, err = cmd.Output()
+		if err != nil {
+			return Version{}, fmt.Errorf("git rev-parse: %w", err)
+		}
+	}
+
+	v := Version{Commit: strings.TrimSpace(string(output))}
+	cmd = exec.Command("git", "describe", "--tags", "--exact-match")
+	cmd.Dir = base
+	if tagOut, err := cmd.Output(); err == nil {
+		v.Tag = strings.TrimSpace(string(tagOut))
+	} else {
+		v.Tag = v.Commit[:8]
+	}
+	return v, nil
+}
+
+func getLatestStableTagFromBase(base string) (Version, error) {
+	cmd := exec.Command("git", "describe", "--tags", "--abbrev=0")
+	cmd.Dir = base
+	output, err := cmd.Output()
+	if err != nil {
+		return Version{}, fmt.Errorf("git describe: %w", err)
+	}
+
+	v := Version{Tag: strings.TrimSpace(string(output))}
+	cmd = exec.Command("git", "rev-parse", v.Tag)
+	cmd.Dir = base
+	if commitOut, err := cmd.Output(); err == nil {
+		v.Commit = strings.TrimSpace(string(commitOut))
+	}
+	return v, nil
+}

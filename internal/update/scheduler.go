@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"text/template"
 	"time"
 
@@ -212,6 +213,8 @@ func RecordUpdateResult(id string, toVersion Version, result string, backupID st
 }
 
 // CheckForUpdates checks for available updates using git.
+// For preview channel: compares with origin/feature branch HEAD.
+// For stable channel: compares with latest semver tag.
 func CheckForUpdates(channel Channel) (*CheckResult, error) {
 	result := &CheckResult{}
 
@@ -219,38 +222,91 @@ func CheckForUpdates(channel Channel) (*CheckResult, error) {
 	current := InstalledVersion()
 	result.CurrentVersion = current
 
-	// Clone/fetch the repo temporarily to check latest
-	p := GetInstallPaths()
-	buildDir := p.Cache + "/update-check-" + uuid.New().String()
-	defer os.RemoveAll(buildDir)
+	// Use current directory for git operations (works both in dev and production)
+	baseDir, _ := os.Getwd()
 
-	// Clone shallow
-	cmd := exec.Command("git", "clone", "--depth", "1", "https://github.com/orvixpanel/orvixpanel.git", buildDir)
-	cmd.Env = os.Environ()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("git clone: %s: %w", string(out), err)
-	}
+	// Fetch latest from origin
+	cmd := exec.Command("git", "fetch", "--all", "--tags")
+	cmd.Dir = baseDir
+	cmd.Stdout = &bytes.Buffer{}
+	cmd.Stderr = &bytes.Buffer{}
+	cmd.Run() // Best effort
 
-	// Get latest tag
-	cmd = exec.Command("git", "describe", "--tags", "--abbrev=0")
-	cmd.Dir = buildDir
-	output, err := cmd.Output()
-	if err != nil {
-		// No tags found
-		result.UpdateAvailable = false
-		return result, nil
-	}
+	var target Version
 
-	latestTag := string(bytes.TrimSpace(output))
+	if channel == ChannelPreview {
+		// Preview: get remote feature branch HEAD
+		cmd = exec.Command("git", "rev-parse", "origin/feature/v0.7.0-mail-hosting")
+		cmd.Dir = baseDir
+		output, err := cmd.Output()
+		if err != nil {
+			// Fall back to local HEAD
+			cmd = exec.Command("git", "rev-parse", "HEAD")
+			cmd.Dir = baseDir
+			output, err = cmd.Output()
+			if err != nil {
+				return nil, fmt.Errorf("get HEAD: %w", err)
+			}
+		}
 
-	// Compare versions
-	if latestTag != current.Tag {
-		result.UpdateAvailable = true
-		result.LatestVersion = Version{
-			Tag: latestTag,
-			Date: time.Now().UTC().Format(time.RFC3339),
+		target.Commit = strings.TrimSpace(string(output))
+
+		// Get tag for this commit
+		cmd = exec.Command("git", "describe", "--tags", "--exact-match")
+		cmd.Dir = baseDir
+		if tagOut, err := cmd.Output(); err == nil {
+			target.Tag = strings.TrimSpace(string(tagOut))
+		} else {
+			target.Tag = target.Commit[:8]
+		}
+	} else {
+		// Stable: get latest semver tag
+		cmd = exec.Command("git", "describe", "--tags", "--abbrev=0")
+		cmd.Dir = baseDir
+		output, err := cmd.Output()
+		if err != nil {
+			result.UpdateAvailable = false
+			return result, nil
+		}
+
+		target.Tag = strings.TrimSpace(string(output))
+
+		// Get commit for this tag
+		cmd = exec.Command("git", "rev-parse", target.Tag)
+		cmd.Dir = baseDir
+		if commitOut, err := cmd.Output(); err == nil {
+			target.Commit = strings.TrimSpace(string(commitOut))
 		}
 	}
 
+	result.LatestVersion = target
+
+	// Compare versions - update needed if commits differ
+	result.UpdateAvailable = CompareVersions(current, target)
+
 	return result, nil
+}
+
+// CompareVersions compares two versions and returns true if update is needed.
+func CompareVersions(installed, target Version) bool {
+	// If commits are different, update is needed
+	if installed.Commit != "" && target.Commit != "" {
+		if installed.Commit != target.Commit {
+			return true
+		}
+	}
+
+	// If installed has no tag but target does, update is needed
+	if installed.Tag == "" && target.Tag != "" {
+		return true
+	}
+
+	// If both have tags, compare
+	if installed.Tag != "" && target.Tag != "" {
+		if installed.Tag != target.Tag {
+			return true
+		}
+	}
+
+	return false
 }
