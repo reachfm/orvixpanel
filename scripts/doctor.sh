@@ -58,11 +58,19 @@ if [ -r "$ENV_FILE" ]; then
   BIND_ADDR=$(grep -E '^ORVIX_SERVER_BIND_ADDR=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'")
 
   # Parse database DSN (extract path from sqlite:///path/to/db)
-  DB_DSN=$(grep -E '^ORVIX_DATABASE_DSN=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'")
+  # Use parameter expansion to preserve leading slash
+  while IFS= read -r line; do
+    DB_DSN="${line#*=}"  # Remove everything up to and including the first =
+    DB_DSN="${DB_DSN#\"}"  # Remove leading double quote if present
+    DB_DSN="${DB_DSN%\"}"  # Remove trailing double quote if present
+    DB_DSN="${DB_DSN#\'}"  # Remove leading single quote if present
+    DB_DSN="${DB_DSN%\'}"  # Remove trailing single quote if present
+    break
+  done < <(grep -E '^ORVIX_DATABASE_DSN=' "$ENV_FILE" 2>/dev/null)
+
   if [ -n "$DB_DSN" ]; then
-    # Handle sqlite:///path format
+    # Handle sqlite:///path format - preserve leading slash
     DB_PATH="${DB_DSN#sqlite://}"
-    DB_PATH="${DB_PATH#/}"  # remove leading slash if present
   fi
 
   # Derive data dir from DB path
