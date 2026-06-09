@@ -287,7 +287,8 @@ func VerifyHealth() error {
 	runtimeCfg, err := ReadRuntimeConfig()
 	var endpoint string
 	if err != nil {
-		endpoint = "http://localhost:8080/healthz" // Fallback
+		// Fall back to VPS default port 8443 (not 8080)
+		endpoint = "http://127.0.0.1:8443/healthz"
 	} else {
 		endpoint = runtimeCfg.HealthEndpoint()
 	}

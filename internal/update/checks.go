@@ -598,12 +598,17 @@ func checkRuntimeStorage() PreflightCheck {
 	// Try to read runtime config
 	runtimeCfg, err := ReadRuntimeConfig()
 	if err != nil {
-		// Fall back to default paths
-		p := GetInstallPaths()
-		return checkRuntimeStoragePaths(p.Var, p.Log, p.Backup, filepath.Join(p.Var, "orvixpanel.db"))
+		// Fall back to VPS standard paths (not /opt/orvixpanel paths)
+		// These are the correct paths for a properly installed orvixpanel
+		return checkRuntimeStoragePaths(
+			"/var/lib/orvixpanel",  // data dir
+			"/var/log/orvixpanel", // log dir
+			"/var/backups/orvixpanel", // backup dir
+			"/var/lib/orvixpanel/data.db", // db path
+		)
 	}
 
-	return checkRuntimeStoragePaths(runtimeCfg.DataDir, runtimeCfg.LogDir, GetInstallPaths().Backup, runtimeCfg.DBPath)
+	return checkRuntimeStoragePaths(runtimeCfg.DataDir, runtimeCfg.LogDir, "/var/backups/orvixpanel", runtimeCfg.DBPath)
 }
 
 func checkRuntimeStoragePaths(dataDir, logDir, backupDir, dbPath string) PreflightCheck {
@@ -658,8 +663,8 @@ func checkRuntimeHealth() PreflightCheck {
 	// Get runtime config for dynamic port detection
 	runtimeCfg, err := ReadRuntimeConfig()
 	if err != nil {
-		// Fall back to default port 8080
-		return checkHealthAtPort("0.0.0.0:8080")
+		// Fall back to VPS default port 8443 (not 8080)
+		return checkHealthAtPort("127.0.0.1:8443")
 	}
 
 	return checkHealthAtEndpoint(runtimeCfg.HealthEndpoint())

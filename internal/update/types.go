@@ -223,17 +223,30 @@ type RuntimeConfig struct {
 }
 
 // ReadRuntimeConfig reads configuration from the environment file.
+// It first checks /etc/orvixpanel/orvixpanel.env (VPS location),
+// then falls back to /opt/orvixpanel/etc/orvixpanel.env (legacy location).
 func ReadRuntimeConfig() (*RuntimeConfig, error) {
-	p := GetInstallPaths()
 	cfg := &RuntimeConfig{}
 
-	// Read env file
-	data, err := os.ReadFile(p.EnvFile)
+	// Try VPS env file first, then legacy location
+	envFiles := []string{
+		"/etc/orvixpanel/orvixpanel.env",          // VPS location
+		"/opt/orvixpanel/etc/orvixpanel.env",      // Legacy location
+	}
+
+	var data []byte
+	var err error
+	for _, envFile := range envFiles {
+		data, err = os.ReadFile(envFile)
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read env file: %w", err)
 	}
 
-	// Parse env vars
+	// Parse env vars - support both VPS style and legacy style
 	lines := strings.Split(string(data), "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -248,21 +261,31 @@ func ReadRuntimeConfig() (*RuntimeConfig, error) {
 		value := strings.TrimSpace(line[eq+1:])
 
 		switch key {
-		case "ORVIX_BIND":
+		// VPS style variables (from /etc/orvixpanel/orvixpanel.env)
+		case "ORVIX_SERVER_BIND_ADDR":
 			cfg.BindAddr = value
+		case "ORVIX_DATABASE_DSN":
+			cfg.DBPath = value
+		case "ORVIX_FRONTEND_DIST":
+			cfg.FrontendDist = value
+		// Legacy style variables (from /opt/orvixpanel/etc/orvixpanel.env)
+		case "ORVIX_BIND":
+			if cfg.BindAddr == "" {
+				cfg.BindAddr = value
+			}
 		case "ORVIX_PORT":
 			// Support legacy ORVIX_PORT variable
 			if cfg.BindAddr == "" {
 				cfg.BindAddr = "0.0.0.0:" + value
 			}
 		case "ORVIX_DB_PATH":
-			cfg.DBPath = value
+			if cfg.DBPath == "" {
+				cfg.DBPath = value
+			}
 		case "ORVIX_DATA_DIR":
 			cfg.DataDir = value
 		case "ORVIX_LOG_DIR":
 			cfg.LogDir = value
-		case "ORVIX_FRONTEND_DIST":
-			cfg.FrontendDist = value
 		case "ORVIX_SERVER_SECRET_KEY":
 			cfg.ServerSecret = value
 		case "ORVIX_UPDATE_CHANNEL":
@@ -275,15 +298,19 @@ func ReadRuntimeConfig() (*RuntimeConfig, error) {
 		cfg.BindAddr = "0.0.0.0:8080" // Default
 	}
 	if cfg.DBPath == "" {
+		p := GetInstallPaths()
 		cfg.DBPath = filepath.Join(p.Var, "orvixpanel.db")
 	}
-	if cfg.DataDir == "" {
-		cfg.DataDir = p.Var
+	// Derive data dir from DB path if not set
+	if cfg.DataDir == "" && cfg.DBPath != "" {
+		cfg.DataDir = filepath.Dir(cfg.DBPath)
 	}
+	// Default log dir to standard VPS location
 	if cfg.LogDir == "" {
-		cfg.LogDir = p.Log
+		cfg.LogDir = "/var/log/orvixpanel"
 	}
 	if cfg.FrontendDist == "" {
+		p := GetInstallPaths()
 		cfg.FrontendDist = filepath.Join(p.Var, "www", "orvixpanel")
 	}
 	if cfg.UpdateChannel == "" {
