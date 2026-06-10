@@ -38,6 +38,7 @@ export const systemKeys = {
   info:    (): readonly unknown[] => ["system", "info"],
   license: (): readonly unknown[] => ["system", "license"],
   licenseRenewal: (): readonly unknown[] => ["system", "license-renewal"],
+  health:  (): readonly unknown[] => ["system", "health"],
 };
 
 export const updateKeys = {
