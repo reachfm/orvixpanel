@@ -1,23 +1,25 @@
 /**
  * Domains list. Cross-account view with search, filter, and pagination.
  * Each row links to the domain detail page.
+ * v0.3.1 Phase C: Enhanced with bulk actions, account filter, and row actions.
  */
 
 import { useState, useMemo } from "react";
-import { useQuery, useQueries } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Card } from "@/lib/ui/Card";
 import { PageHeader } from "@/lib/ui/PageHeader";
 import { Button } from "@/lib/ui/Button";
 import { Input } from "@/lib/ui/Input";
 import { Select } from "@/lib/ui/Select";
+import { Modal } from "@/lib/ui/Modal";
 import { Table, type Column } from "@/lib/ui/Table";
 import { StatusPill } from "@/lib/ui/StatusPill";
 import { Spinner, ErrorState, EmptyState } from "@/lib/ui/Feedback";
 import { accountKeys, domainKeys } from "@/lib/query/keys";
 import { formatDate } from "@/lib/utils";
 import { listAccounts } from "@/lib/api/accounts";
-import { listDomains, type Domain } from "@/lib/api/domains";
+import { listDomains, deleteDomain, type Domain } from "@/lib/api/domains";
 
 const PAGE_SIZE = 25;
 
@@ -27,11 +29,17 @@ interface DomainWithAccount extends Domain {
 
 export function DomainsListPage() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
 
   // Filter and pagination state
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [accountFilter, setAccountFilter] = useState<string>("all");
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Bulk selection state
+  const [selectedDomains, setSelectedDomains] = useState<Set<string>>(new Set());
+  const [deleteModal, setDeleteModal] = useState(false);
 
   const accts = useQuery({ queryKey: accountKeys.list(), queryFn: listAccounts });
   const accounts = accts.data?.accounts ?? [];
@@ -55,7 +63,7 @@ export function DomainsListPage() {
       const r = domQueries[i];
       if (!r?.data) continue;
       for (const d of r.data.domains) {
-        result.push({ ...d, account_username: acct.username });
+        result.push({ ...d, account_username: acct.username, account_id: acct.id });
       }
     }
     return result;
@@ -81,8 +89,13 @@ export function DomainsListPage() {
       result = result.filter((d) => d.status === statusFilter);
     }
 
+    // Account filter
+    if (accountFilter !== "all") {
+      result = result.filter((d) => d.account_id === accountFilter);
+    }
+
     return result;
-  }, [allDomains, searchQuery, statusFilter]);
+  }, [allDomains, searchQuery, statusFilter, accountFilter]);
 
   // Pagination
   const totalPages = Math.ceil(filteredDomains.length / PAGE_SIZE);
@@ -102,7 +115,75 @@ export function DomainsListPage() {
     setCurrentPage(1);
   };
 
+  const handleAccountChange = (value: string) => {
+    setAccountFilter(value);
+    setCurrentPage(1);
+  };
+
+  // Selection helpers
+  const toggleSelection = (key: string) => {
+    setSelectedDomains((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedDomains.size === paginatedDomains.length) {
+      setSelectedDomains(new Set());
+    } else {
+      setSelectedDomains(new Set(paginatedDomains.map((d) => `${d.account_id}:${d.id}`)));
+    }
+  };
+
+  const clearSelection = () => setSelectedDomains(new Set());
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: ({ accountId, domain }: { accountId: string; domain: string }) =>
+      deleteDomain(accountId, domain),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: domainKeys.all() });
+      setDeleteModal(false);
+      clearSelection();
+    },
+  });
+
+  const handleBulkDelete = () => {
+    // Parse selected domain keys (format: "accountId:domainId")
+    selectedDomains.forEach((key) => {
+      const [accountId] = key.split(":");
+      // Find the actual domain name from the domain data
+      const domain = allDomains.find((d) => `${d.account_id}:${d.id}` === key);
+      if (domain) {
+        deleteMutation.mutate({ accountId, domain: domain.name });
+      }
+    });
+  };
+
   const columns: Column<DomainWithAccount>[] = [
+    {
+      key: "_select",
+      header: (
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-ink-4 bg-surface-1 text-brand-600 focus:ring-brand-500"
+          checked={selectedDomains.size === paginatedDomains.length && paginatedDomains.length > 0}
+          onChange={toggleSelectAll}
+        />
+      ),
+      cell: (d) => (
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-ink-4 bg-surface-1 text-brand-600 focus:ring-brand-500"
+          checked={selectedDomains.has(`${d.account_id}:${d.id}`)}
+          onChange={() => toggleSelection(`${d.account_id}:${d.id}`)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ),
+    },
     {
       key: "name",
       header: "Domain",
@@ -157,6 +238,27 @@ export function DomainsListPage() {
       />
 
       <Card>
+        {/* Bulk action bar */}
+        {selectedDomains.size > 0 && (
+          <div className="mb-4 flex items-center justify-between rounded-md border border-brand-500/30 bg-brand-500/5 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium">{selectedDomains.size} selected</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-danger"
+                onClick={() => setDeleteModal(true)}
+                loading={deleteMutation.isPending}
+              >
+                Delete
+              </Button>
+            </div>
+            <Button variant="ghost" size="sm" onClick={clearSelection}>
+              Clear selection
+            </Button>
+          </div>
+        )}
+
         {/* Filters */}
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">
           <div className="flex-1">
@@ -179,6 +281,18 @@ export function DomainsListPage() {
               <option value="pending">Pending</option>
             </Select>
           </div>
+          <div className="w-full sm:w-48">
+            <Select
+              label="Account"
+              value={accountFilter}
+              onChange={(e) => handleAccountChange(e.target.value)}
+            >
+              <option value="all">All accounts</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.username}</option>
+              ))}
+            </Select>
+          </div>
         </div>
 
         {isError ? (
@@ -192,14 +306,14 @@ export function DomainsListPage() {
           </div>
         ) : paginatedDomains.length === 0 ? (
           <EmptyState
-            title={searchQuery || statusFilter !== "all" ? "No domains match your filters" : "No domains yet"}
+            title={searchQuery || statusFilter !== "all" || accountFilter !== "all" ? "No domains match your filters" : "No domains yet"}
             description={
-              searchQuery || statusFilter !== "all"
+              searchQuery || statusFilter !== "all" || accountFilter !== "all"
                 ? "Try adjusting your search or filters."
                 : "Create an account with a primary domain, or add a domain to an existing account."
             }
             action={
-              !searchQuery && statusFilter === "all" && (
+              !searchQuery && statusFilter === "all" && accountFilter === "all" && (
                 <Button variant="primary" onClick={() => navigate({ to: "/accounts/new" })}>
                   Create account
                 </Button>
@@ -248,6 +362,32 @@ export function DomainsListPage() {
           </>
         )}
       </Card>
+
+      {/* Bulk Delete Confirmation Modal */}
+      <Modal
+        open={deleteModal}
+        onClose={() => !deleteMutation.isPending && setDeleteModal(false)}
+        title="Delete Domains"
+        description={`Are you sure you want to delete ${selectedDomains.size} domain${selectedDomains.size === 1 ? "" : "s"}? This will permanently remove the domains and their document roots.`}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setDeleteModal(false)} disabled={deleteMutation.isPending}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={deleteMutation.isPending}
+              onClick={handleBulkDelete}
+            >
+              Delete {selectedDomains.size} domains
+            </Button>
+          </>
+        }
+      >
+        <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-sm text-danger">
+          This action is irreversible and will permanently delete all selected domains.
+        </div>
+      </Modal>
     </div>
   );
 }
