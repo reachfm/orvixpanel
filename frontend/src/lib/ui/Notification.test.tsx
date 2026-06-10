@@ -1,5 +1,6 @@
 /**
  * Tests for the global notification system.
+ * v0.3.1 Phase I: Enhanced with preference tests.
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -15,6 +16,8 @@ describe("NotificationStore", () => {
   beforeEach(() => {
     // Reset the store before each test
     useNotificationStore.getState().clear();
+    // Reset preferences to defaults
+    useNotificationStore.getState().resetPreferences();
   });
 
   it("should start with empty notifications", () => {
@@ -70,6 +73,135 @@ describe("NotificationStore", () => {
 
     const { notifications } = useNotificationStore.getState();
     expect(notifications[0].duration).toBe(10000);
+  });
+});
+
+describe("NotificationPreferences", () => {
+  beforeEach(() => {
+    useNotificationStore.getState().clear();
+    useNotificationStore.getState().resetPreferences();
+  });
+
+  it("should have default preferences", () => {
+    const { preferences } = useNotificationStore.getState();
+    expect(preferences.enabled).toBe(true);
+    expect(preferences.soundEnabled).toBe(false);
+    expect(preferences.position).toBe("bottom-right");
+    expect(preferences.defaultDuration).toBe(5000);
+    expect(preferences.typesEnabled.success).toBe(true);
+    expect(preferences.typesEnabled.error).toBe(true);
+    expect(preferences.typesEnabled.warning).toBe(true);
+    expect(preferences.typesEnabled.info).toBe(true);
+  });
+
+  it("should update preferences", () => {
+    const store = useNotificationStore.getState();
+    store.updatePreferences({ enabled: false, defaultDuration: 10000 });
+
+    const { preferences } = useNotificationStore.getState();
+    expect(preferences.enabled).toBe(false);
+    expect(preferences.defaultDuration).toBe(10000);
+    // Other preferences should remain
+    expect(preferences.soundEnabled).toBe(false);
+  });
+
+  it("should reset preferences to defaults", () => {
+    const store = useNotificationStore.getState();
+    store.updatePreferences({
+      enabled: false,
+      soundEnabled: true,
+      position: "top-left",
+      defaultDuration: 30000,
+      typesEnabled: { success: false, error: false, warning: false, info: false },
+    });
+
+    store.resetPreferences();
+
+    const { preferences } = useNotificationStore.getState();
+    expect(preferences.enabled).toBe(true);
+    expect(preferences.soundEnabled).toBe(false);
+    expect(preferences.position).toBe("bottom-right");
+    expect(preferences.defaultDuration).toBe(5000);
+    expect(preferences.typesEnabled.success).toBe(true);
+    expect(preferences.typesEnabled.error).toBe(true);
+    expect(preferences.typesEnabled.warning).toBe(true);
+    expect(preferences.typesEnabled.info).toBe(true);
+  });
+
+  it("should support position changes", () => {
+    const store = useNotificationStore.getState();
+    store.updatePreferences({ position: "top-right" });
+
+    const { preferences } = useNotificationStore.getState();
+    expect(preferences.position).toBe("top-right");
+
+    store.updatePreferences({ position: "top-left" });
+    const { preferences: prefs2 } = useNotificationStore.getState();
+    expect(prefs2.position).toBe("top-left");
+  });
+});
+
+describe("useNotification with preferences", () => {
+  beforeEach(() => {
+    useNotificationStore.getState().clear();
+    useNotificationStore.getState().resetPreferences();
+  });
+
+  it("should respect enabled preference", () => {
+    const store = useNotificationStore.getState();
+    store.updatePreferences({ enabled: false });
+
+    const TestComponent = () => {
+      const notify = useNotification();
+      notify("success", "Should not show", "Message");
+      return null;
+    };
+
+    render(<TestComponent />);
+
+    const { notifications } = useNotificationStore.getState();
+    expect(notifications).toHaveLength(0);
+  });
+
+  it("should respect type filtering", () => {
+    const store = useNotificationStore.getState();
+    store.updatePreferences({
+      typesEnabled: { success: false, error: true, warning: true, info: true },
+    });
+
+    const TestComponent = () => {
+      const notify = useNotification();
+      return (
+        <div>
+          <button onClick={() => notify("success", "Success")}>Success</button>
+          <button onClick={() => notify("error", "Error")}>Error</button>
+        </div>
+      );
+    };
+
+    render(<TestComponent />);
+
+    fireEvent.click(screen.getByText("Success"));
+    expect(useNotificationStore.getState().notifications).toHaveLength(0);
+
+    fireEvent.click(screen.getByText("Error"));
+    expect(useNotificationStore.getState().notifications).toHaveLength(1);
+  });
+
+  it("should use default duration from preferences", () => {
+    const store = useNotificationStore.getState();
+    store.updatePreferences({ defaultDuration: 15000 });
+
+    const TestComponent = () => {
+      const notify = useNotification();
+      notify("info", "Test");
+      return null;
+    };
+
+    render(<TestComponent />);
+
+    const { notifications } = useNotificationStore.getState();
+    expect(notifications[0].duration).toBe(15000);
   });
 });
 
