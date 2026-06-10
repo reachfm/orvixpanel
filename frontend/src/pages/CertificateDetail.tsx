@@ -195,21 +195,15 @@ export function CertificateDetailPage() {
           <h3 className="text-lg font-semibold mb-4">Validity Period</h3>
           <dl className="space-y-3">
             <div className="flex justify-between">
-              <dt className="text-gray-500">Not Before</dt>
-              <dd>{formatDate(cert.not_before)}</dd>
+              <dt className="text-gray-500">Issued</dt>
+              <dd>{formatDate(cert.issued_at)}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-gray-500">Not After</dt>
+              <dt className="text-gray-500">Expires</dt>
               <dd className={cert.status === "expiring_soon" ? "text-yellow-600 font-medium" : ""}>
-                {formatDate(cert.not_after)}
+                {formatDate(cert.expires_at)}
               </dd>
             </div>
-            {cert.issuer && (
-              <div className="flex justify-between">
-                <dt className="text-gray-500">Issuer</dt>
-                <dd className="truncate max-w-[200px]">{cert.issuer}</dd>
-              </div>
-            )}
           </dl>
         </Card>
       </div>
@@ -219,18 +213,18 @@ export function CertificateDetailPage() {
         <Card className="p-4">
           <h3 className="text-lg font-semibold mb-4">Subject Alternative Names</h3>
           <ul className="space-y-1">
-            {cert.san_names.map((san, i) => (
-              <li key={i} className="text-sm font-mono">{san}</li>
+            {cert.san_names.split(',').map((san, i) => (
+              <li key={i} className="text-sm font-mono">{san.trim()}</li>
             ))}
           </ul>
         </Card>
       )}
 
       {/* Error Message */}
-      {cert.error_message && (
+      {cert.last_error && (
         <Card className="p-4 border-red-300 dark:border-red-800">
           <h3 className="text-lg font-semibold mb-2 text-red-600 dark:text-red-400">Error</h3>
-          <p className="text-sm text-red-600 dark:text-red-400">{cert.error_message}</p>
+          <p className="text-sm text-red-600 dark:text-red-400">{cert.last_error}</p>
         </Card>
       )}
 

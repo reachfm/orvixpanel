@@ -47,6 +47,15 @@ var (
 
 	// ErrAlreadyRevoked indicates the certificate was already revoked.
 	ErrAlreadyRevoked = errors.New("certificate already revoked")
+
+	// ErrInvalidPEM indicates PEM content is invalid or malformed.
+	ErrInvalidPEM = errors.New("invalid PEM content")
+
+	// ErrInvalidPrivateKey indicates the private key is invalid.
+	ErrInvalidPrivateKey = errors.New("invalid private key")
+
+	// ErrKeyCertMismatch indicates the private key does not match the certificate.
+	ErrKeyCertMismatch = errors.New("private key does not match certificate")
 )
 
 // Error represents an SSL operation error with context.

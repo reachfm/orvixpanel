@@ -1,6 +1,12 @@
 package ssl
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"testing"
 	"time"
 )
@@ -449,5 +455,269 @@ func TestConfigAccountKeyPath(t *testing.T) {
 
 	if path == "" {
 		t.Error("expected AccountKeyPath to return a non-empty path")
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Import Validation Tests
+// -----------------------------------------------------------------------------
+
+// generateTestCertKey generates a test RSA key pair.
+func generateTestCertKey() (*rsa.PrivateKey, error) {
+	return rsa.GenerateKey(rand.Reader, 2048)
+}
+
+// generateTestCertificate generates a self-signed certificate with the given key.
+func generateTestCertificate(key *rsa.PrivateKey, domain string) ([]byte, error) {
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName: domain,
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().AddDate(1, 0, 0),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{domain, "www." + domain},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		return nil, err
+	}
+
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certDER,
+	}), nil
+}
+
+// generateTestKeyPEM generates a PEM-encoded private key.
+func generateTestKeyPEM(key *rsa.PrivateKey) []byte {
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+}
+
+// TestParseCertificateValidPEM tests parsing a valid certificate PEM.
+func TestParseCertificateValidPEM(t *testing.T) {
+	key, err := generateTestCertKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	certPEM, err := generateTestCertificate(key, "example.com")
+	if err != nil {
+		t.Fatalf("failed to generate cert: %v", err)
+	}
+
+	info, err := ParseCertificate(certPEM)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if info.CommonName != "example.com" {
+		t.Errorf("expected CommonName 'example.com', got '%s'", info.CommonName)
+	}
+
+	if len(info.SANs) != 2 {
+		t.Errorf("expected 2 SANs, got %d", len(info.SANs))
+	}
+
+	if info.SerialNumber == "" {
+		t.Error("expected SerialNumber to be set")
+	}
+
+	if info.Fingerprint == "" {
+		t.Error("expected Fingerprint to be set")
+	}
+
+	if info.NotAfter.Before(time.Now()) {
+		t.Error("expected NotAfter to be in the future")
+	}
+}
+
+// TestParseCertificateInvalid tests parsing invalid certificate PEM.
+func TestParseCertificateInvalid(t *testing.T) {
+	// Empty input
+	_, err := ParseCertificate([]byte{})
+	if err == nil {
+		t.Error("expected error for empty input")
+	}
+
+	// Invalid PEM
+	_, err = ParseCertificate([]byte("not valid pem"))
+	if err == nil {
+		t.Error("expected error for invalid PEM")
+	}
+
+	// Valid PEM but not a certificate
+	_, err = ParseCertificate([]byte("-----BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJBAL\n-----END RSA PRIVATE KEY-----"))
+	if err == nil {
+		t.Error("expected error for non-certificate PEM")
+	}
+}
+
+// TestParsePrivateKeyValid tests parsing a valid private key PEM.
+func TestParsePrivateKeyValid(t *testing.T) {
+	key, err := generateTestCertKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	keyPEM := generateTestKeyPEM(key)
+
+	parsedKey, err := ParsePrivateKey(keyPEM)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if parsedKey.N.BitLen() != 2048 {
+		t.Errorf("expected 2048-bit key, got %d bits", parsedKey.N.BitLen())
+	}
+}
+
+// TestParsePrivateKeyInvalid tests parsing invalid private key PEM.
+func TestParsePrivateKeyInvalid(t *testing.T) {
+	// Empty input
+	_, err := ParsePrivateKey([]byte{})
+	if err == nil {
+		t.Error("expected error for empty input")
+	}
+
+	// Invalid PEM
+	_, err = ParsePrivateKey([]byte("not valid pem"))
+	if err == nil {
+		t.Error("expected error for invalid PEM")
+	}
+
+	// Valid PEM but not a private key
+	_, err = ParsePrivateKey([]byte("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----"))
+	if err == nil {
+		t.Error("expected error for non-private-key PEM")
+	}
+}
+
+// TestValidateKeyCertMatchValid tests matching key and certificate.
+func TestValidateKeyCertMatchValid(t *testing.T) {
+	key, err := generateTestCertKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	certPEM, err := generateTestCertificate(key, "example.com")
+	if err != nil {
+		t.Fatalf("failed to generate cert: %v", err)
+	}
+
+	keyPEM := generateTestKeyPEM(key)
+
+	err = ValidateKeyCertMatch(certPEM, keyPEM)
+	if err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+}
+
+// TestValidateKeyCertMatchMismatch tests key-certificate mismatch.
+func TestValidateKeyCertMatchMismatch(t *testing.T) {
+	key1, err := generateTestCertKey()
+	if err != nil {
+		t.Fatalf("failed to generate key1: %v", err)
+	}
+
+	key2, err := generateTestCertKey()
+	if err != nil {
+		t.Fatalf("failed to generate key2: %v", err)
+	}
+
+	certPEM, err := generateTestCertificate(key1, "example.com")
+	if err != nil {
+		t.Fatalf("failed to generate cert: %v", err)
+	}
+
+	keyPEM := generateTestKeyPEM(key2) // Different key
+
+	err = ValidateKeyCertMatch(certPEM, keyPEM)
+	if err != ErrKeyCertMismatch {
+		t.Errorf("expected ErrKeyCertMismatch, got: %v", err)
+	}
+}
+
+// TestValidateKeyCertMatchInvalidInputs tests ValidateKeyCertMatch with invalid inputs.
+func TestValidateKeyCertMatchInvalidInputs(t *testing.T) {
+	// Empty cert PEM
+	err := ValidateKeyCertMatch([]byte{}, []byte("-----BEGIN RSA PRIVATE KEY-----\nkey\n-----END RSA PRIVATE KEY-----"))
+	if err == nil {
+		t.Error("expected error for empty cert PEM")
+	}
+
+	// Empty key PEM
+	err = ValidateKeyCertMatch([]byte("-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----"), []byte{})
+	if err == nil {
+		t.Error("expected error for empty key PEM")
+	}
+}
+
+// TestCalculateFingerprint tests fingerprint calculation.
+func TestCalculateFingerprint(t *testing.T) {
+	key, err := generateTestCertKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	certPEM, err := generateTestCertificate(key, "example.com")
+	if err != nil {
+		t.Fatalf("failed to generate cert: %v", err)
+	}
+
+	// Parse cert to get DER bytes
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		t.Fatal("failed to decode PEM")
+	}
+
+	fingerprint := calculateFingerprint(block.Bytes)
+
+	// Fingerprint should be colon-separated hex
+	if fingerprint == "" {
+		t.Error("expected non-empty fingerprint")
+	}
+
+	// Check format: should contain colons
+	if fingerprint[2] != ':' {
+		t.Errorf("expected colon at position 2, fingerprint: %s", fingerprint)
+	}
+}
+
+// TestPublicKeysEqual tests public key comparison.
+func TestPublicKeysEqual(t *testing.T) {
+	key1, _ := generateTestCertKey()
+	key2, _ := generateTestCertKey()
+
+	// Same key should be equal
+	if !publicKeysEqual(key1.Public(), key1.Public()) {
+		t.Error("expected same key to be equal")
+	}
+
+	// Different keys should not be equal
+	if publicKeysEqual(key1.Public(), key2.Public()) {
+		t.Error("expected different keys to not be equal")
+	}
+}
+
+// TestErrorTypesImport tests import-specific error types.
+func TestErrorTypesImport(t *testing.T) {
+	if ErrInvalidPEM == nil {
+		t.Error("ErrInvalidPEM should not be nil")
+	}
+
+	if ErrInvalidPrivateKey == nil {
+		t.Error("ErrInvalidPrivateKey should not be nil")
+	}
+
+	if ErrKeyCertMismatch == nil {
+		t.Error("ErrKeyCertMismatch should not be nil")
 	}
 }

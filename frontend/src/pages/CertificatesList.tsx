@@ -141,11 +141,11 @@ export function CertificatesListPage() {
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      result = result.filter(
-        (c) =>
-          c.common_name.toLowerCase().includes(query) ||
-          (c.san_names && c.san_names.some((s) => s.toLowerCase().includes(query)))
-      );
+      result = result.filter((c) => {
+        const matchesDomain = c.common_name.toLowerCase().includes(query);
+        const matchesSAN = c.san_names ? c.san_names.split(',').some((s) => s.trim().toLowerCase().includes(query)) : false;
+        return matchesDomain || matchesSAN;
+      });
     }
 
     if (statusFilter !== "all") {
@@ -240,7 +240,7 @@ export function CertificatesListPage() {
       key: "expires",
       header: "Expires",
       cell: (cert) => (
-        <span className="text-ink-2">{formatExpiry(cert.not_after)}</span>
+        <span className="text-ink-2">{formatExpiry(cert.expires_at)}</span>
       ),
     },
     {

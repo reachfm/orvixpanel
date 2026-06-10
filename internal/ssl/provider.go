@@ -2,8 +2,12 @@ package ssl
 
 import (
 	"context"
+	"crypto"
+	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"time"
 )
 
@@ -107,7 +111,7 @@ type ACMEIdentifier struct {
 func ParseCertificate(certPEM []byte) (*CertInfo, error) {
 	block, _ := pemDecode(certPEM)
 	if block == nil {
-		return nil, ErrInvalidCertificate
+		return nil, ErrInvalidPEM
 	}
 
 	cert, err := x509.ParseCertificate(block.Bytes)
@@ -116,12 +120,12 @@ func ParseCertificate(certPEM []byte) (*CertInfo, error) {
 	}
 
 	info := &CertInfo{
-		CommonName: cert.Subject.CommonName,
+		CommonName:   cert.Subject.CommonName,
 		SerialNumber: cert.SerialNumber.String(),
-		NotBefore: cert.NotBefore,
-		NotAfter:  cert.NotAfter,
-		IsCA:     cert.IsCA,
-		Issuer:   cert.Issuer.String(),
+		NotBefore:    cert.NotBefore,
+		NotAfter:     cert.NotAfter,
+		IsCA:         cert.IsCA,
+		Issuer:       cert.Issuer.String(),
 	}
 
 	// Extract SANs
@@ -129,10 +133,107 @@ func ParseCertificate(certPEM []byte) (*CertInfo, error) {
 		info.SANs = append(info.SANs, dnsName)
 	}
 
-	// Calculate fingerprint
-	// Fingerprint would be calculated here in real implementation
+	// Calculate SHA-256 fingerprint
+	info.Fingerprint = calculateFingerprint(block.Bytes)
 
 	return info, nil
+}
+
+// ParsePrivateKey parses a PEM private key and returns the RSA private key.
+func ParsePrivateKey(keyPEM []byte) (*rsa.PrivateKey, error) {
+	block, _ := pemDecode(keyPEM)
+	if block == nil {
+		return nil, ErrInvalidPEM
+	}
+
+	// Try parsing as PKCS8 first
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		// Fall back to PKCS1
+		rsaKey, err2 := x509.ParsePKCS1PrivateKey(block.Bytes)
+		if err2 != nil {
+			return nil, &Error{Op: "parse private key", Err: ErrInvalidPrivateKey}
+		}
+		return rsaKey, nil
+	}
+
+	// Convert to RSA if needed
+	rsaKey, ok := key.(*rsa.PrivateKey)
+	if !ok {
+		return nil, &Error{Op: "parse private key", Err: ErrInvalidPrivateKey}
+	}
+
+	return rsaKey, nil
+}
+
+// ValidateKeyCertMatch verifies that the private key matches the certificate.
+func ValidateKeyCertMatch(certPEM, keyPEM []byte) error {
+	// Parse certificate
+	certBlock, _ := pemDecode(certPEM)
+	if certBlock == nil {
+		return ErrInvalidPEM
+	}
+
+	cert, err := x509.ParseCertificate(certBlock.Bytes)
+	if err != nil {
+		return &Error{Op: "parse certificate", Err: err}
+	}
+
+	// Parse private key
+	key, err := ParsePrivateKey(keyPEM)
+	if err != nil {
+		return err
+	}
+
+	// Compare public keys
+	if !publicKeysEqual(cert.PublicKey, key.Public()) {
+		return ErrKeyCertMismatch
+	}
+
+	return nil
+}
+
+// publicKeysEqual compares two crypto.PublicKey values for equality.
+func publicKeysEqual(a, b crypto.PublicKey) bool {
+	// Compare RSA public keys
+	aRSA, aOk := a.(*rsa.PublicKey)
+	bRSA, bOk := b.(*rsa.PublicKey)
+
+	if aOk && bOk {
+		return aRSA.N.Cmp(bRSA.N) == 0 && aRSA.E == bRSA.E
+	}
+
+	// For other key types, compare byte representation
+	aBytes, errA := x509.MarshalPKIXPublicKey(a)
+	bBytes, errB := x509.MarshalPKIXPublicKey(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+
+	if len(aBytes) != len(bBytes) {
+		return false
+	}
+
+	for i := range aBytes {
+		if aBytes[i] != bBytes[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// calculateFingerprint computes SHA-256 fingerprint of DER-encoded certificate.
+func calculateFingerprint(derBytes []byte) string {
+	hash := sha256.Sum256(derBytes)
+	fingerprint := ""
+	for i, b := range hash {
+		if i > 0 {
+			fingerprint += ":"
+		}
+		fingerprint += fmt.Sprintf("%02X", b)
+	}
+	return fingerprint
 }
 
 // pemDecode is a helper to decode PEM block.

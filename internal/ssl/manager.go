@@ -1,11 +1,12 @@
 package ssl
 
 import (
-	"github.com/orvixpanel/orvixpanel/internal/db/models"
 	"context"
-	"gorm.io/gorm"
 	"strings"
 	"time"
+
+	"github.com/orvixpanel/orvixpanel/internal/db/models"
+	"gorm.io/gorm"
 )
 
 // Manager orchestrates SSL certificate operations.
@@ -239,11 +240,22 @@ func (m *Manager) DeleteCertificate(ctx context.Context, certID string) error {
 }
 
 // ImportCertificate imports an existing certificate.
-func (m *Manager) ImportCertificate(ctx context.Context, domain, certPEM, keyPEM, chainPEM string) (*models.SSLCertificate, error) {
-	// Parse and validate certificate
-	certInfo, err := m.provider.ValidateCertificate("")
+func (m *Manager) ImportCertificate(ctx context.Context, tenantID, domain, certPEM, keyPEM, chainPEM string) (*models.SSLCertificate, error) {
+	// Parse and validate certificate PEM
+	certInfo, err := ParseCertificate([]byte(certPEM))
 	if err != nil {
-		return nil, &Error{Op: "validate imported cert", Err: err}
+		return nil, &Error{Op: "parse certificate PEM", Err: err}
+	}
+
+	// Validate private key PEM
+	_, err = ParsePrivateKey([]byte(keyPEM))
+	if err != nil {
+		return nil, &Error{Op: "parse private key PEM", Err: err}
+	}
+
+	// Verify key-certificate match
+	if err := ValidateKeyCertMatch([]byte(certPEM), []byte(keyPEM)); err != nil {
+		return nil, &Error{Op: "verify key-certificate match", Err: err}
 	}
 
 	// Store certificate files
@@ -254,24 +266,25 @@ func (m *Manager) ImportCertificate(ctx context.Context, domain, certPEM, keyPEM
 
 	// Create certificate record
 	cert := &models.SSLCertificate{
-		CommonName:   domain,
-		Provider:     "imported",
-		Status:       models.CertStatusIssued,
-		AutoRenew:    false,
-		CertPath:     paths.CertPath,
-		KeyPath:      paths.KeyPath,
-		ChainPath:    paths.ChainPath,
+		CommonName:    domain,
+		SANNames:      joinStrings(certInfo.SANs, ","),
+		Provider:      "imported",
+		Status:        models.CertStatusIssued,
+		AutoRenew:     false,
+		CertPath:      paths.CertPath,
+		KeyPath:       paths.KeyPath,
+		ChainPath:     paths.ChainPath,
 		FullChainPath: paths.FullChainPath,
-		IssuedAt:     &certInfo.NotBefore,
-		ExpiresAt:    &certInfo.NotAfter,
-		SerialNumber: certInfo.SerialNumber,
-		Fingerprint: certInfo.Fingerprint,
-		TenantID:     "system",
+		IssuedAt:      &certInfo.NotBefore,
+		ExpiresAt:     &certInfo.NotAfter,
+		SerialNumber:  certInfo.SerialNumber,
+		Fingerprint:   certInfo.Fingerprint,
+		TenantID:      tenantID,
 	}
 
 	if err := m.db.WithContext(ctx).Create(cert).Error; err != nil {
 		// Cleanup files
-		m.storage.DeleteCertFiles(domain)
+		_ = m.storage.DeleteCertFiles(domain)
 		return nil, &Error{Op: "create cert record", Err: err}
 	}
 

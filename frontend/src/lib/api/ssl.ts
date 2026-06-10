@@ -22,22 +22,21 @@ export type SSLProvider = "letsencrypt" | "zerossl";
 
 export interface SSLCertificate {
   id: string;
-  domain_id: string;
-  account_id: string;
-  tenant_id: string;
+  domain_id?: string;
+  account_id?: string;
+  tenant_id?: string;
   provider: SSLProvider;
   common_name: string;
-  san_names?: string[];
+  san_names?: string; // Backend stores as comma-separated string, parse with .split(',')
   status: SSLCertStatus;
   auto_renew: boolean;
   cert_path?: string;
   key_path?: string;
-  not_before?: string;
-  not_after?: string;
+  issued_at?: string;
+  expires_at?: string;
   serial_number?: string;
   fingerprint?: string;
-  issuer?: string;
-  error_message?: string;
+  last_error?: string;
   created_at: string;
   updated_at: string;
 }

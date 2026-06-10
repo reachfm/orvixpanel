@@ -5,6 +5,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/orvixpanel/orvixpanel/internal/api/middleware"
+	"github.com/orvixpanel/orvixpanel/internal/audit"
 	"github.com/orvixpanel/orvixpanel/internal/auth"
 	"github.com/orvixpanel/orvixpanel/internal/db/models"
 	"gorm.io/gorm"
@@ -20,7 +21,7 @@ type HandlerDeps struct {
 // SSLDeps holds SSL-specific dependencies.
 type SSLDeps struct {
 	DB     *gorm.DB
-	Audit  interface{}
+	Audit  *audit.Auditor
 }
 
 // ListCertificatesHandler returns all SSL certificates.
@@ -176,6 +177,11 @@ type ImportCertificateRequest struct {
 // POST /api/v1/ssl/import
 func ImportCertificateHandler(deps SSLDeps, manager *Manager) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		claims, ok := c.Locals(middleware.LocalClaims).(*auth.Claims)
+		if !ok {
+			return fiber.ErrUnauthorized
+		}
+
 		var req ImportCertificateRequest
 		if err := c.BodyParser(&req); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "invalid_body")
@@ -189,13 +195,34 @@ func ImportCertificateHandler(deps SSLDeps, manager *Manager) fiber.Handler {
 		mgr := NewManager(deps.DB, cfg)
 
 		chainPEM := req.ChainPEM
-		if chainPEM == "" {
-			chainPEM = ""
+
+		cert, err := mgr.ImportCertificate(c.Context(), claims.TenantID, req.Domain, req.CertPEM, req.KeyPEM, chainPEM)
+		if err != nil {
+			if deps.Audit != nil {
+				_ = deps.Audit.Record(c.Context(), audit.Event{
+					Action:       "ssl.certificate.import",
+					ResourceType: "ssl_certificate",
+					ResourceID:   "",
+					ResourceName: req.Domain,
+					Result:       "failure",
+					Detail:       err.Error(),
+					UserID:       claims.UserID,
+					ActorIP:      c.IP(),
+				})
+			}
+			return fiber.NewError(fiber.StatusBadRequest, "ssl_import_failed: "+err.Error())
 		}
 
-		cert, err := mgr.ImportCertificate(c.Context(), req.Domain, req.CertPEM, req.KeyPEM, chainPEM)
-		if err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "ssl_import_failed")
+		if deps.Audit != nil {
+			_ = deps.Audit.Record(c.Context(), audit.Event{
+				Action:       "ssl.certificate.import",
+				ResourceType: "ssl_certificate",
+				ResourceID:   cert.ID,
+				ResourceName: cert.CommonName,
+				Result:       "success",
+				UserID:       claims.UserID,
+				ActorIP:      c.IP(),
+			})
 		}
 
 		return c.Status(fiber.StatusCreated).JSON(cert)
