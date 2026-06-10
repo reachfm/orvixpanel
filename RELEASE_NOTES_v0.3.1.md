@@ -68,8 +68,11 @@ orvixpanel --bootstrap
 
 ### Domains UX Improvements
 
-- **Domain table**: Clear domain list with status indicators
-- **Status badges**: Visual status pills for active/suspended/inactive domains
+- **Cross-account view**: All domains across accounts in a single table with account links
+- **Search filtering**: Real-time search by domain name, account username, or document root
+- **Status filtering**: Filter by Active, Suspended, or Pending domains
+- **Pagination**: 25 domains per page with Previous/Next navigation
+- **Status badges**: Visual status pills for active/suspended/pending domains
 - **Creation flow**: Dedicated AddDomain page with proper validation
 
 ### System Health Page
