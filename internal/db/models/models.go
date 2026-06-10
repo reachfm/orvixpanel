@@ -23,7 +23,7 @@ type Base struct {
 // BeforeCreate generates a ULID if the caller didn't supply one.
 func (b *Base) BeforeCreate(tx *gorm.DB) error {
 	if b.ID == "" {
-		b.ID = newID()
+		b.ID = NewID()
 	}
 	return nil
 }
@@ -247,4 +247,21 @@ type DNSZoneTemplate struct {
 	Name        string `gorm:"uniqueIndex;not null" json:"name"`
 	Description string `gorm:"type:text" json:"description,omitempty"`
 	Records     string `gorm:"type:text;not null" json:"records"` // JSON array of record definitions
+}
+
+// HostingPlan defines a provisioning template for accounts.
+type HostingPlan struct {
+	Base
+	Name          string  `gorm:"uniqueIndex;not null" json:"name"` // e.g., "starter", "pro", "enterprise"
+	DisplayName   string  `gorm:"not null" json:"display_name"`
+	Description   string  `gorm:"type:text" json:"description,omitempty"`
+	DiskQuotaMB   int64   `json:"disk_quota_mb"`
+	BandwidthGB   int64   `json:"bandwidth_gb"`
+	MaxDomains    int     `json:"max_domains"`
+	MaxUsers      int     `json:"max_users"`
+	MaxSSL        int     `json:"max_ssl"`
+	FeaturesJSON  string  `gorm:"type:text" json:"-"` // JSON array of feature flags
+	IsActive      bool    `json:"is_active"`
+	IsDefault     bool    `json:"is_default"`
+	MonthlyPrice  float64 `json:"monthly_price"` // Price in cents
 }
