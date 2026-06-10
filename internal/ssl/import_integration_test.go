@@ -32,6 +32,24 @@ import (
 // Test Fixtures
 // -----------------------------------------------------------------------------
 
+// requireDefaultStorageWritable checks if the SSL DefaultConfig storage
+// path (/var/lib/orvixpanel/ssl/certs) is writable in the current
+// environment. Tests that exercise the full handler write path
+// (file storage) call this first; if the path is not writable, the
+// test is skipped with a clear message rather than failing on a
+// permission error that is unrelated to the code under test.
+//
+// In a normal install the directory exists with 0700 root. In a
+// sandboxed CI / dev environment the path may be missing or owned
+// by another user; skipping is the honest answer.
+func requireDefaultStorageWritable(t *testing.T) {
+	t.Helper()
+	defaultPath := DefaultConfig().StorageDir
+	if err := os.MkdirAll(defaultPath, 0700); err != nil {
+		t.Skipf("SSL default storage path %q is not writable in this environment (%v); skipping filesystem-dependent test", defaultPath, err)
+	}
+}
+
 // testEnv holds all test dependencies.
 type testEnv struct {
 	app     *fiber.App
@@ -65,7 +83,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 		&models.UserSession{},
 		&models.SSLCertificate{},
 		&models.SSLEvent{},
-		&models.AuditLog{},
+		&models.AuditEntry{},
 	); err != nil {
 		t.Fatalf("failed to migrate db: %v", err)
 	}
@@ -172,19 +190,12 @@ func generateTestCert(key *rsa.PrivateKey, domain string, sans []string) ([]byte
 	}), nil
 }
 
-// generateTestKeyPEM generates a PEM-encoded RSA private key.
-func generateTestKeyPEM(key *rsa.PrivateKey) []byte {
-	return pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(key),
-	})
-}
-
 // -----------------------------------------------------------------------------
 // Test: Import Certificate - Valid Request
 // -----------------------------------------------------------------------------
 
 func TestImportCertificateHandler_Valid(t *testing.T) {
+	requireDefaultStorageWritable(t)
 	env := setupTestEnv(t)
 
 	// Generate test key and certificate
@@ -537,6 +548,7 @@ func TestImportCertificateHandler_MissingFields(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestImportCertificateHandler_WithChain(t *testing.T) {
+	requireDefaultStorageWritable(t)
 	env := setupTestEnv(t)
 
 	key, _ := generateTestKey()
@@ -607,6 +619,7 @@ func TestImportCertificateHandler_WithChain(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestImportCertificateHandler_TenantIsolation(t *testing.T) {
+	requireDefaultStorageWritable(t)
 	env := setupTestEnv(t)
 
 	key, _ := generateTestKey()
@@ -657,6 +670,7 @@ func TestImportCertificateHandler_TenantIsolation(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestImportCertificateHandler_DuplicateDomain(t *testing.T) {
+	requireDefaultStorageWritable(t)
 	env := setupTestEnv(t)
 
 	key, _ := generateTestKey()
@@ -701,6 +715,7 @@ func TestImportCertificateHandler_DuplicateDomain(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestImportCertificateHandler_ResponseExcludesPrivateKey(t *testing.T) {
+	requireDefaultStorageWritable(t)
 	env := setupTestEnv(t)
 
 	key, _ := generateTestKey()
