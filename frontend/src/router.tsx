@@ -54,6 +54,7 @@ import { MailAliasesPage } from "@/pages/MailAliases";
 import { MailForwardersPage } from "@/pages/MailForwarders";
 import { MailAuditLogPage } from "@/pages/MailAuditLog";
 import { MailStatsPage } from "@/pages/MailStats";
+import { MailDomainDetailPage } from "@/pages/MailDomainDetail";
 import { UpdateCenterPage } from "@/pages/UpdateCenter";
 
 const rootRoute = createRootRoute({
@@ -192,6 +193,12 @@ const mailDomainsListRoute = createRoute({
   component: MailDomainsListPage,
 });
 
+const mailDomainDetailRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/mail/domains/$id",
+  component: MailDomainDetailPage,
+});
+
 const mailboxesListRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: "/mail/mailboxes",
@@ -244,6 +251,7 @@ const routeTree = rootRoute.addChildren([
     backupsListRoute,
     backupDetailRoute,
     mailDomainsListRoute,
+    mailDomainDetailRoute,
     mailboxesListRoute,
     mailAliasesRoute,
     mailForwardersRoute,

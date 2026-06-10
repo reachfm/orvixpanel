@@ -121,12 +121,13 @@ export interface QuotaStatus {
 // Stats
 export interface MailStats {
   total_domains: number;
+  active_domains: number;
   total_mailboxes: number;
+  suspended_mailboxes: number;
   total_aliases: number;
   total_forwarders: number;
-  storage_used_bytes: number;
-  storage_available_bytes: number;
-  active_today: number;
+  total_quota_mb: number;
+  used_quota_mb: number;
   generated_at: string;
 }
 

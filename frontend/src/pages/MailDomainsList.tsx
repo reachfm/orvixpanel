@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { listDomains, createDomain, deleteDomain, getDNSRecords } from "@/lib/api/mail";
 import { Button } from "@/lib/ui/Button";
 import { Input } from "@/lib/ui/Input";
@@ -20,6 +21,7 @@ import type { MailDomain } from "@/lib/api/mail";
 
 export function MailDomainsListPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDNSModal, setShowDNSModal] = useState<MailDomain | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<MailDomain | null>(null);
@@ -71,7 +73,15 @@ export function MailDomainsListPage() {
     {
       key: "domain",
       header: "Domain",
-      cell: (d) => <div className="font-medium text-ink-1">{d.domain ?? "—"}</div>,
+      cell: (d) => (
+        <button
+          type="button"
+          className="font-medium text-ink-1 hover:text-primary-1 transition-colors text-left"
+          onClick={() => navigate({ to: "/mail/domains/$id", params: { id: d.id } })}
+        >
+          {d.domain ?? "—"}
+        </button>
+      ),
     },
     {
       key: "status",

@@ -1,201 +1,287 @@
 /**
- * Mail Statistics Page
+ * Mail Statistics Page — Enterprise mail system overview.
+ * Shows domain counts, mailbox counts, quota usage, and storage metrics.
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { getMailStats, getQuotaStats } from "@/lib/api/mail";
+import { getMailStats } from "@/lib/api/mail";
 import { Card } from "@/lib/ui/Card";
-import { Spinner } from "@/lib/ui/Feedback";
+import { Badge } from "@/lib/ui/Badge";
+import { PageHeader } from "@/lib/ui/PageHeader";
+import { Spinner, ErrorState } from "@/lib/ui/Feedback";
 
-interface StatCardProps {
+interface MetricCardProps {
   title: string;
-  value: string | number;
+  value: number | string;
   subtitle?: string;
-  color?: string;
+  tone?: "neutral" | "success" | "warning" | "danger";
+  icon?: React.ReactNode;
 }
 
-function StatCard({ title, value, subtitle, color = "text-primary-600" }: StatCardProps) {
+function MetricCard({ title, value, subtitle, tone = "neutral", icon }: MetricCardProps) {
+  const toneClasses = {
+    neutral: "text-ink-1",
+    success: "text-success",
+    warning: "text-warning",
+    danger: "text-danger",
+  };
+
   return (
     <Card>
-      <div className="text-sm text-gray-500">{title}</div>
-      <div className={`text-3xl font-bold ${color}`}>{value}</div>
-      {subtitle && <div className="text-xs text-gray-400 mt-1">{subtitle}</div>}
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="text-sm text-ink-3 font-medium">{title}</div>
+          <div className={`text-3xl font-bold mt-1 ${toneClasses[tone]}`}>{value}</div>
+          {subtitle && <div className="text-xs text-ink-2 mt-1">{subtitle}</div>}
+        </div>
+        {icon && <div className="text-ink-3">{icon}</div>}
+      </div>
     </Card>
+  );
+}
+
+interface QuotaBarProps {
+  used: number;
+  total: number;
+  label: string;
+}
+
+function QuotaBar({ used, total, label }: QuotaBarProps) {
+  const percent = total > 0 ? Math.min((used / total) * 100, 100) : 0;
+  const tone = percent >= 90 ? "danger" : percent >= 70 ? "warning" : "success";
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-ink-2">{label}</span>
+        <span className="text-ink-1 font-mono">
+          {used.toLocaleString()} / {total.toLocaleString()} MB
+        </span>
+      </div>
+      <div className="h-2 rounded-full bg-surface-2 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${
+            tone === "danger" ? "bg-danger" : tone === "warning" ? "bg-warning" : "bg-success"
+          }`}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <div className="text-xs text-ink-3 text-right">{percent.toFixed(1)}% used</div>
+    </div>
   );
 }
 
 export function MailStatsPage() {
   // Query mail stats
-  const { data: stats, isLoading: statsLoading, error: statsError } = useQuery({
+  const { data: stats, isLoading, error, refetch } = useQuery({
     queryKey: ["mail", "stats"],
     queryFn: getMailStats,
   });
 
-  // Query quota stats
-  const { data: quotaStats } = useQuery({
-    queryKey: ["mail", "quota", "stats"],
-    queryFn: getQuotaStats,
-  });
-
-  if (statsLoading) {
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Spinner />
+      <div className="flex items-center justify-center py-16">
+        <Spinner size={32} />
       </div>
     );
   }
 
-  if (statsError) {
+  if (error) {
     return (
-      <div className="text-center text-red-500">
-        Failed to load mail statistics. Please try again.
+      <div className="space-y-6">
+        <PageHeader
+          title="Mail Statistics"
+          description="Overview of mail system usage and capacity"
+        />
+        <Card>
+          <ErrorState
+            description="Failed to load mail statistics."
+            onRetry={() => refetch()}
+          />
+        </Card>
       </div>
     );
   }
 
-  const storageUsedGB = stats ? (stats.storage_used_bytes / (1024 * 1024 * 1024)).toFixed(2) : "0";
-  const storageAvailableGB = stats ? (stats.storage_available_bytes / (1024 * 1024 * 1024)).toFixed(2) : "0";
+  const totalQuotaGB = (stats?.total_quota_mb ?? 0) / 1024;
+  const usedQuotaGB = (stats?.used_quota_mb ?? 0) / 1024;
+  const availableQuotaGB = totalQuotaGB - usedQuotaGB;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      <PageHeader
+        title="Mail Statistics"
+        description="Overview of mail system usage and capacity"
+      />
+
+      {/* Domain Metrics */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Mail Statistics</h1>
-        <p className="text-gray-500">
-          Overview of mail system usage and capacity
-        </p>
+        <h2 className="text-sm font-semibold text-ink-3 uppercase tracking-wide mb-3">Domains</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <MetricCard
+            title="Total Domains"
+            value={stats?.total_domains ?? 0}
+            subtitle="configured"
+            tone="neutral"
+          />
+          <MetricCard
+            title="Active Domains"
+            value={stats?.active_domains ?? 0}
+            subtitle="ready for mail"
+            tone="success"
+          />
+          <MetricCard
+            title="Inactive"
+            value={(stats?.total_domains ?? 0) - (stats?.active_domains ?? 0)}
+            subtitle="pending or suspended"
+            tone="warning"
+          />
+          <MetricCard
+            title="Total Aliases"
+            value={stats?.total_aliases ?? 0}
+            subtitle="email aliases"
+            tone="neutral"
+          />
+        </div>
       </div>
 
-      {/* Overview Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Total Domains"
-          value={stats?.total_domains || 0}
-          subtitle="configured domains"
-        />
-        <StatCard
-          title="Total Mailboxes"
-          value={stats?.total_mailboxes || 0}
-          subtitle="active mailboxes"
-        />
-        <StatCard
-          title="Total Aliases"
-          value={stats?.total_aliases || 0}
-          subtitle="email aliases"
-        />
-        <StatCard
-          title="Total Forwarders"
-          value={stats?.total_forwarders || 0}
-          subtitle="email forwarders"
-        />
+      {/* Mailbox Metrics */}
+      <div>
+        <h2 className="text-sm font-semibold text-ink-3 uppercase tracking-wide mb-3">Mailboxes</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <MetricCard
+            title="Total Mailboxes"
+            value={stats?.total_mailboxes ?? 0}
+            subtitle="configured"
+            tone="neutral"
+          />
+          <MetricCard
+            title="Active"
+            value={(stats?.total_mailboxes ?? 0) - (stats?.suspended_mailboxes ?? 0)}
+            subtitle="operational"
+            tone="success"
+          />
+          <MetricCard
+            title="Suspended"
+            value={stats?.suspended_mailboxes ?? 0}
+            subtitle="disabled"
+            tone="warning"
+          />
+          <MetricCard
+            title="Forwarders"
+            value={stats?.total_forwarders ?? 0}
+            subtitle="email forwarders"
+            tone="neutral"
+          />
+        </div>
       </div>
 
-      {/* Storage Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard
-          title="Storage Used"
-          value={`${storageUsedGB} GB`}
-          color="text-blue-600"
-        />
-        <StatCard
-          title="Storage Available"
-          value={`${storageAvailableGB} GB`}
-          color="text-green-600"
-        />
-        <StatCard
-          title="Active Today"
-          value={stats?.active_today || 0}
-          subtitle="mailboxes with activity"
-        />
-      </div>
-
-      {/* Quota Distribution */}
+      {/* Quota Usage */}
       <Card>
-        <h2 className="text-lg font-semibold mb-4">Quota Usage Distribution</h2>
-        {quotaStats && quotaStats.summary ? (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600">Healthy (0-50%)</span>
-              <span className="text-2xl font-bold text-green-600">
-                {quotaStats.summary.healthy_count}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600">Warning (50-80%)</span>
-              <span className="text-2xl font-bold text-yellow-600">
-                {quotaStats.summary.warning_count}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600">Critical (80-100%)</span>
-              <span className="text-2xl font-bold text-red-600">
-                {quotaStats.summary.critical_count}
-              </span>
-            </div>
-            <div className="pt-4 border-t">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Total Quota Allocated</span>
-                <span className="text-xl font-semibold">
-                  {(quotaStats.summary.total_quota_bytes / (1024 * 1024 * 1024)).toFixed(1)} GB
-                </span>
+        <h2 className="text-lg font-semibold text-ink-1 mb-4">Quota Usage</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <QuotaBar
+              used={stats?.used_quota_mb ?? 0}
+              total={stats?.total_quota_mb ?? 0}
+              label="Total Quota Allocation"
+            />
+            <div className="mt-6 grid grid-cols-3 gap-4">
+              <div className="text-center p-3 rounded-lg bg-surface-2">
+                <div className="text-2xl font-bold text-ink-1">{usedQuotaGB.toFixed(1)}</div>
+                <div className="text-xs text-ink-3">GB Used</div>
+              </div>
+              <div className="text-center p-3 rounded-lg bg-surface-2">
+                <div className="text-2xl font-bold text-ink-1">{availableQuotaGB.toFixed(1)}</div>
+                <div className="text-xs text-ink-3">GB Available</div>
+              </div>
+              <div className="text-center p-3 rounded-lg bg-surface-2">
+                <div className="text-2xl font-bold text-ink-1">{totalQuotaGB.toFixed(1)}</div>
+                <div className="text-xs text-ink-3">GB Total</div>
               </div>
             </div>
           </div>
-        ) : (
-          <div className="text-center text-gray-500 py-8">
-            No quota data available
-          </div>
-        )}
-      </Card>
-
-      {/* Activity Chart Placeholder */}
-      <Card>
-        <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
-        <div className="h-48 flex items-center justify-center text-gray-400">
-          <div className="text-center">
-            <svg className="w-16 h-16 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-            <p>Activity chart requires VPS integration</p>
-            <p className="text-sm">Run smoke tests to enable real data</p>
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-ink-2">Quick Stats</h3>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-ink-2">Avg. Quota per Mailbox</span>
+                <Badge tone="neutral">
+                  {stats?.total_mailboxes && stats.total_mailboxes > 0
+                    ? Math.round((stats.total_quota_mb || 0) / stats.total_mailboxes)
+                    : 0} MB
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-ink-2">Avg. Usage per Mailbox</span>
+                <Badge tone="neutral">
+                  {stats?.total_mailboxes && stats.total_mailboxes > 0
+                    ? Math.round((stats.used_quota_mb || 0) / stats.total_mailboxes)
+                    : 0} MB
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-ink-2">Overall Utilization</span>
+                <Badge
+                  tone={
+                    stats?.total_quota_mb && stats.total_quota_mb > 0
+                      ? (stats.used_quota_mb / stats.total_quota_mb) >= 0.9
+                        ? "danger"
+                        : (stats.used_quota_mb / stats.total_quota_mb) >= 0.7
+                        ? "warning"
+                        : "success"
+                      : "neutral"
+                  }
+                >
+                  {stats?.total_quota_mb && stats.total_quota_mb > 0
+                    ? ((stats.used_quota_mb / stats.total_quota_mb) * 100).toFixed(1)
+                    : 0}%
+                </Badge>
+              </div>
+            </div>
           </div>
         </div>
       </Card>
 
       {/* System Status */}
       <Card>
-        <h2 className="text-lg font-semibold mb-4">Service Status</h2>
+        <h2 className="text-lg font-semibold text-ink-1 mb-4">Service Status</h2>
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-green-500" />
-              <span className="text-sm">Database</span>
+          <div className="flex items-center justify-between py-2 border-b border-surface-2">
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 rounded-full bg-success" />
+              <span className="text-sm text-ink-1">Database</span>
             </div>
-            <span className="text-sm text-green-600">Connected</span>
+            <Badge tone="success">Connected</Badge>
           </div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-yellow-500" />
-              <span className="text-sm">Postfix</span>
+          <div className="flex items-center justify-between py-2 border-b border-surface-2">
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 rounded-full bg-warning" />
+              <span className="text-sm text-ink-1">Postfix</span>
             </div>
-            <span className="text-sm text-yellow-600">Requires VPS Setup</span>
+            <Badge tone="warning">Requires VPS Setup</Badge>
           </div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-yellow-500" />
-              <span className="text-sm">Dovecot</span>
+          <div className="flex items-center justify-between py-2 border-b border-surface-2">
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 rounded-full bg-warning" />
+              <span className="text-sm text-ink-1">Dovecot</span>
             </div>
-            <span className="text-sm text-yellow-600">Requires VPS Setup</span>
+            <Badge tone="warning">Requires VPS Setup</Badge>
           </div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-yellow-500" />
-              <span className="text-sm">OpenDKIM</span>
+          <div className="flex items-center justify-between py-2">
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 rounded-full bg-warning" />
+              <span className="text-sm text-ink-1">OpenDKIM</span>
             </div>
-            <span className="text-sm text-yellow-600">Requires VPS Setup</span>
+            <Badge tone="warning">Requires VPS Setup</Badge>
           </div>
         </div>
       </Card>
+
+      {/* Last Updated */}
+      <div className="text-center text-xs text-ink-3">
+        Last updated: {stats?.generated_at ? new Date(stats.generated_at).toLocaleString() : "—"}
+      </div>
     </div>
   );
 }

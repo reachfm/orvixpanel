@@ -545,23 +545,39 @@ func (h *Handler) DeleteForwarder(c echo.Context) error {
 func (h *Handler) GetStats(c echo.Context) error {
 	tenantID := h.getTenantID(c)
 
-	// Get domain count
-	var domainCount int64
-	h.db.Model(&models.MailDomain{}).Where("tenant_id = ?", tenantID).Count(&domainCount)
+	// Get domain counts
+	var totalDomains, activeDomains int64
+	h.db.Model(&models.MailDomain{}).Where("tenant_id = ?", tenantID).Count(&totalDomains)
+	h.db.Model(&models.MailDomain{}).Where("tenant_id = ? AND status = ?", tenantID, "active").Count(&activeDomains)
 
-	// Get mailbox count
-	var mailboxCount int64
-	h.db.Model(&models.Mailbox{}).Where("tenant_id = ?", tenantID).Count(&mailboxCount)
+	// Get mailbox counts
+	var totalMailboxes, suspendedMailboxes int64
+	h.db.Model(&models.Mailbox{}).Where("tenant_id = ?", tenantID).Count(&totalMailboxes)
+	h.db.Model(&models.Mailbox{}).Where("tenant_id = ? AND status = ?", tenantID, "suspended").Count(&suspendedMailboxes)
 
 	// Get alias count
-	var aliasCount int64
-	h.db.Model(&models.MailAlias{}).Where("tenant_id = ?", tenantID).Count(&aliasCount)
+	var totalAliases int64
+	h.db.Model(&models.MailAlias{}).Where("tenant_id = ?", tenantID).Count(&totalAliases)
+
+	// Get forwarder count
+	var totalForwarders int64
+	h.db.Model(&models.MailForwarder{}).Where("tenant_id = ?", tenantID).Count(&totalForwarders)
+
+	// Get quota usage
+	var totalQuotaMB, usedQuotaMB int64
+	h.db.Model(&models.Mailbox{}).Where("tenant_id = ?", tenantID).Select("COALESCE(SUM(quota_mb), 0)").Row().Scan(&totalQuotaMB)
+	h.db.Model(&models.Mailbox{}).Where("tenant_id = ?", tenantID).Select("COALESCE(SUM(quota_used_mb), 0)").Row().Scan(&usedQuotaMB)
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"total_domains":   domainCount,
-		"total_mailboxes": mailboxCount,
-		"total_aliases":   aliasCount,
-		"generated_at":    time.Now().Format(time.RFC3339),
+		"total_domains":     totalDomains,
+		"active_domains":    activeDomains,
+		"total_mailboxes":   totalMailboxes,
+		"suspended_mailboxes": suspendedMailboxes,
+		"total_aliases":     totalAliases,
+		"total_forwarders":  totalForwarders,
+		"total_quota_mb":    totalQuotaMB,
+		"used_quota_mb":     usedQuotaMB,
+		"generated_at":      time.Now().Format(time.RFC3339),
 	})
 }
 
