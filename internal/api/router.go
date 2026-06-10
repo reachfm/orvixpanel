@@ -141,6 +141,7 @@ func registerV1(g fiber.Router, d Deps) {
 	g.Get("/dns/templates", v1.ListTemplatesHandler(dnsDeps)).Name("dns.template.read")
 	g.Post("/dns/templates", v1.CreateTemplateHandler(dnsDeps)).Name("dns.template.write")
 	g.Post("/dns/templates/:id/apply", v1.ApplyTemplateHandler(dnsDeps)).Name("dns.template.apply")
+	g.Delete("/dns/templates/:id", v1.DeleteTemplateHandler(dnsDeps)).Name("dns.template.delete")
 	g.Post("/dns/validate", v1.ValidateRecordHandler(dnsDeps)).Name("dns.validate")
 	g.Get("/dns/lookup/:domain", v1.LookupHandler(dnsDeps)).Name("dns.lookup")
 

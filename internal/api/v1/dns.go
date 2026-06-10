@@ -13,6 +13,7 @@
 //   GET    /api/v1/dns/templates
 //   POST   /api/v1/dns/templates
 //   POST   /api/v1/dns/templates/:id/apply
+//   DELETE /api/v1/dns/templates/:id
 //   POST   /api/v1/dns/validate
 //   GET    /api/v1/dns/lookup/:domain
 package v1
@@ -498,6 +499,44 @@ func ApplyTemplateHandler(d DNSDeps) fiber.Handler {
 		}
 
 		return c.JSON(fiber.Map{"success": true, "message": "template applied"})
+	}
+}
+
+// DeleteTemplateHandler — DELETE /api/v1/dns/templates/:id
+func DeleteTemplateHandler(d DNSDeps) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		claims, ok := c.Locals(middleware.LocalClaims).(*auth.Claims)
+		if !ok {
+			return fiber.ErrUnauthorized
+		}
+
+		templateID := c.Params("id")
+		template, err := d.DNS.GetTemplate(c.Context(), templateID)
+		if err != nil {
+			return fiber.NewError(fiber.StatusNotFound, "template_not_found")
+		}
+
+		if template.TenantID != claims.TenantID {
+			return fiber.NewError(fiber.StatusForbidden, "access_denied")
+		}
+
+		if err := d.DNS.DeleteTemplate(c.Context(), templateID); err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("delete_template_failed: %s", err.Error()))
+		}
+
+		if d.Audit != nil {
+			_ = d.Audit.Record(c.Context(), audit.Event{
+				Action:       "dns.template.delete",
+				ResourceType: "dns_template",
+				ResourceID:   template.ID,
+				ResourceName: template.Name,
+				Result:       "success",
+				UserID:       claims.UserID,
+				ActorIP:      c.IP(),
+			})
+		}
+
+		return c.SendStatus(fiber.StatusNoContent)
 	}
 }
 
