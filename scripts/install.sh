@@ -138,16 +138,21 @@ main() {
   blue "Extracting package..."
   tar -xzf "${TEMP_DIR}/package.tar.gz" -C "$TEMP_DIR"
 
+  # The tarball extracts to: release/orvixpanel-installer-{VERSION}/scripts/install.sh
+  PKG_DIR="${TEMP_DIR}/release/orvixpanel-installer-${VERSION}"
+  INSTALL_SCRIPT="${PKG_DIR}/scripts/install.sh"
+
   # Check for install.sh in extracted package
-  if [ ! -f "${TEMP_DIR}/scripts/install.sh" ]; then
+  if [ ! -f "$INSTALL_SCRIPT" ]; then
     red "Error: install.sh not found in package"
+    red "Expected: $INSTALL_SCRIPT"
     red "Package contents:"
     find "$TEMP_DIR" -type f | head -20
     exit 1
   fi
 
   # Make install.sh executable
-  chmod +x "${TEMP_DIR}/scripts/install.sh"
+  chmod +x "$INSTALL_SCRIPT"
 
   # Run the actual installer
   green ""
@@ -155,7 +160,7 @@ main() {
   green ""
 
   # Pass through any additional arguments
-  exec "${TEMP_DIR}/scripts/install.sh" "$@"
+  exec "$INSTALL_SCRIPT" "$@"
 }
 
 main "$@"
