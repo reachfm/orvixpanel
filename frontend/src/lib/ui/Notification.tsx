@@ -1,9 +1,11 @@
 /**
  * Global Notification System - Toast notifications for the app.
  * Provides a hook to show notifications from anywhere in the app.
+ * v0.3.1 Phase F: Enhanced with notification preferences.
  */
 
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import { useEffect, useState, useCallback } from "react";
 
 export type NotificationType = "success" | "error" | "warning" | "info";
@@ -16,50 +18,112 @@ export interface Notification {
   duration?: number;
 }
 
+export interface NotificationPreferences {
+  enabled: boolean;
+  soundEnabled: boolean;
+  position: "top-right" | "bottom-right" | "top-left" | "bottom-left";
+  defaultDuration: number;
+  typesEnabled: {
+    success: boolean;
+    error: boolean;
+    warning: boolean;
+    info: boolean;
+  };
+}
+
 interface NotificationState {
   notifications: Notification[];
+  preferences: NotificationPreferences;
   add: (notification: Omit<Notification, "id">) => string;
   remove: (id: string) => void;
   clear: () => void;
+  updatePreferences: (prefs: Partial<NotificationPreferences>) => void;
+  resetPreferences: () => void;
 }
 
-export const useNotificationStore = create<NotificationState>((set) => ({
-  notifications: [],
-  add: (notification) => {
-    const id = `notification-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const newNotification = { ...notification, id };
-    set((state) => ({
-      notifications: [...state.notifications, newNotification],
-    }));
-    return id;
+const defaultPreferences: NotificationPreferences = {
+  enabled: true,
+  soundEnabled: false,
+  position: "bottom-right",
+  defaultDuration: 5000,
+  typesEnabled: {
+    success: true,
+    error: true,
+    warning: true,
+    info: true,
   },
-  remove: (id) => {
-    set((state) => ({
-      notifications: state.notifications.filter((n) => n.id !== id),
-    }));
-  },
-  clear: () => set({ notifications: [] }),
-}));
+};
+
+export const useNotificationStore = create<NotificationState>()(
+  persist(
+    (set) => ({
+      notifications: [],
+      preferences: defaultPreferences,
+      add: (notification) => {
+        const id = `notification-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const newNotification = { ...notification, id };
+        set((state) => ({
+          notifications: [...state.notifications, newNotification],
+        }));
+        return id;
+      },
+      remove: (id) => {
+        set((state) => ({
+          notifications: state.notifications.filter((n) => n.id !== id),
+        }));
+      },
+      clear: () => set({ notifications: [] }),
+      updatePreferences: (prefs) => {
+        set((state) => ({
+          preferences: { ...state.preferences, ...prefs },
+        }));
+      },
+      resetPreferences: () => set({ preferences: defaultPreferences }),
+    }),
+    {
+      name: "notification-preferences",
+    },
+  )
+);
 
 // Hook to show notifications easily
 export function useNotification() {
   const add = useNotificationStore((s) => s.add);
+  const preferences = useNotificationStore((s) => s.preferences);
 
   return useCallback(
-    (type: NotificationType, title: string, message?: string, duration = 5000) => {
-      return add({ type, title, message, duration });
+    (type: NotificationType, title: string, message?: string, duration?: number) => {
+      // Check if notifications are enabled globally
+      if (!preferences.enabled) return null;
+      // Check if this notification type is enabled
+      if (!preferences.typesEnabled[type]) return null;
+
+      const effectiveDuration = duration ?? preferences.defaultDuration;
+      return add({ type, title, message, duration: effectiveDuration });
     },
-    [add],
+    [add, preferences],
   );
 }
+
+// Position classes mapping
+const positionClasses = {
+  "top-right": "top-4 right-4",
+  "bottom-right": "bottom-4 right-4",
+  "top-left": "top-4 left-4",
+  "bottom-left": "bottom-4 left-4",
+};
 
 // Notification container component - renders all active notifications
 export function NotificationContainer() {
   const notifications = useNotificationStore((s) => s.notifications);
   const remove = useNotificationStore((s) => s.remove);
+  const preferences = useNotificationStore((s) => s.preferences);
+
+  // Don't render if notifications are disabled
+  if (!preferences.enabled) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
+    <div className={`fixed ${positionClasses[preferences.position]} z-50 flex flex-col gap-2 max-w-sm`}>
       {notifications.map((notification) => (
         <NotificationToast
           key={notification.id}

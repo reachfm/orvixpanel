@@ -56,6 +56,7 @@ const navSections: NavSection[] = [
       { to: "/updates", label: "Update Center", icon: <IconRefresh /> },
       { to: "/audit-log", label: "Audit Log", icon: <IconShield /> },
       { to: "/settings", label: "Settings", icon: <IconGear /> },
+      { to: "/settings/notifications", label: "Notifications", icon: <IconBell /> },
     ],
   },
 ];
@@ -280,6 +281,14 @@ function IconRefresh() {
       <path d="M21 3v5h-5" />
       <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
       <path d="M3 21v-5h5" />
+    </Icon>
+  );
+}
+function IconBell() {
+  return (
+    <Icon>
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
     </Icon>
   );
 }

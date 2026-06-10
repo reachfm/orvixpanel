@@ -56,6 +56,7 @@ import { MailAuditLogPage } from "@/pages/MailAuditLog";
 import { MailStatsPage } from "@/pages/MailStats";
 import { MailDomainDetailPage } from "@/pages/MailDomainDetail";
 import { UpdateCenterPage } from "@/pages/UpdateCenter";
+import { NotificationSettingsPage } from "@/pages/NotificationSettings";
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
@@ -139,6 +140,12 @@ const settingsRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: "/settings",
   component: SettingsPage,
+});
+
+const notificationSettingsRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/settings/notifications",
+  component: NotificationSettingsPage,
 });
 
 // DNS routes
@@ -243,6 +250,7 @@ const routeTree = rootRoute.addChildren([
     updateCenterRoute,
     auditLogRoute,
     settingsRoute,
+    notificationSettingsRoute,
     dnsZonesListRoute,
     dnsZoneDetailRoute,
     dnsTemplatesRoute,
