@@ -177,4 +177,16 @@ func registerV1(g fiber.Router, d Deps) {
 
 	// System health checks.
 	g.Get("/admin/system/health", v1.SystemHealth).Name("system.health")
+
+	// Provisioning Engine (Phase 2 Core Hosting Engine).
+	provDeps := v1.ProvisioningDeps{
+		DB:          d.DB,
+		Audit:       d.Audit,
+		Provisioning: d.Provisioning,
+	}
+	provGroup := g.Group("/provisioning")
+	provGroup.Post("/websites", v1.CreateWebsiteHandler(provDeps)).Name("provisioning.create")
+	provGroup.Get("/jobs", v1.ListJobsHandler(provDeps)).Name("provisioning.read")
+	provGroup.Get("/jobs/:id", v1.GetJobHandler(provDeps)).Name("provisioning.read")
+	provGroup.Get("/jobs/:id/events", v1.ListEventsHandler(provDeps)).Name("provisioning.read")
 }

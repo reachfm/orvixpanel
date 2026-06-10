@@ -30,6 +30,7 @@ import (
 	"github.com/orvixpanel/orvixpanel/internal/dns"
 	"github.com/orvixpanel/orvixpanel/internal/hosting"
 	"github.com/orvixpanel/orvixpanel/internal/license"
+	"github.com/orvixpanel/orvixpanel/internal/provisioning"
 	"github.com/orvixpanel/orvixpanel/internal/quota"
 	"github.com/orvixpanel/orvixpanel/internal/rbac"
 	"github.com/orvixpanel/orvixpanel/internal/vault"
@@ -51,6 +52,7 @@ type Deps struct {
 	APIKeys      *auth.KeyService
 	Hosting      *hosting.Service
 	DNS          *dns.Service
+	Provisioning *provisioning.Service
 }
 
 // Server is the *fiber.App wrapper.
