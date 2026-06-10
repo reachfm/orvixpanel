@@ -20,8 +20,9 @@ type HandlerDeps struct {
 
 // SSLDeps holds SSL-specific dependencies.
 type SSLDeps struct {
-	DB     *gorm.DB
-	Audit  *audit.Auditor
+	DB      *gorm.DB
+	Audit   *audit.Auditor
+	Manager *Manager // Optional: if provided, handlers will use this instead of creating a new one
 }
 
 // ListCertificatesHandler returns all SSL certificates.
@@ -191,8 +192,16 @@ func ImportCertificateHandler(deps SSLDeps, manager *Manager) fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest, "domain_and_pem_required")
 		}
 
-		cfg := DefaultConfig()
-		mgr := NewManager(deps.DB, cfg)
+		// Use injected Manager, or create one with default config
+		var mgr *Manager
+		if manager != nil {
+			mgr = manager
+		} else if deps.Manager != nil {
+			mgr = deps.Manager
+		} else {
+			cfg := DefaultConfig()
+			mgr = NewManager(deps.DB, cfg)
+		}
 
 		chainPEM := req.ChainPEM
 
