@@ -110,7 +110,7 @@ main() {
   trap "rm -rf $TEMP_DIR" EXIT
 
   # Download release package
-  blue "Downloading OrvixPanel v${VERSION}..."
+  blue "Downloading OrvixPanel ${VERSION}..."
   echo "  URL: $RELEASE_URL"
 
   if ! curl -fsSL "$RELEASE_URL" -o "${TEMP_DIR}/package.tar.gz"; then
@@ -138,8 +138,9 @@ main() {
   blue "Extracting package..."
   tar -xzf "${TEMP_DIR}/package.tar.gz" -C "$TEMP_DIR"
 
-  # The tarball extracts to: release/orvixpanel-installer-{VERSION}/scripts/install.sh
-  PKG_DIR="${TEMP_DIR}/release/orvixpanel-installer-${VERSION}"
+  # Strip leading 'v' from VERSION for path construction (tarball uses 'v0.7.4' not 'vv0.7.4')
+  PKG_VERSION="${VERSION#v}"
+  PKG_DIR="${TEMP_DIR}/release/orvixpanel-installer-${PKG_VERSION}"
   INSTALL_SCRIPT="${PKG_DIR}/scripts/install.sh"
 
   # Check for install.sh in extracted package
