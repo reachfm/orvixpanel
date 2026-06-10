@@ -74,6 +74,12 @@
     box-shadow: 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color),
                 0 0 0 calc(var(--tw-ring-offset-width) + var(--tw-ring-width)) rgb(var(--brand-500) / 0.6);
   }
+
+  /* Dark mode scrollbar styling */
+  .dark ::-webkit-scrollbar { width: 10px; height: 10px; }
+  .dark ::-webkit-scrollbar-thumb { background: rgb(var(--surface-3)); border-radius: 8px; }
+  .dark ::-webkit-scrollbar-track { background: transparent; }
+  .dark ::-webkit-scrollbar-thumb:hover { background: rgb(var(--surface-border)); }
 }
 
 @layer components {
@@ -81,4 +87,5 @@
   .scroll-surface::-webkit-scrollbar { width: 10px; height: 10px; }
   .scroll-surface::-webkit-scrollbar-thumb { background: rgb(var(--surface-3)); border-radius: 8px; }
   .scroll-surface::-webkit-scrollbar-track { background: transparent; }
+  .scroll-surface::-webkit-scrollbar-thumb:hover { background: rgb(var(--surface-border)); }
 }
