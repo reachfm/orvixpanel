@@ -7,6 +7,7 @@
  *   - Deployments: real list via the v0.2.3 /deployments endpoint
  *   - Usage      : raw /api/v1/accounts/:id/usage (the fields are
  *                  open-ended; we just dump them as a JSON panel)
+ * v0.3.1 Phase B: Enhanced with disk usage visualization and quick actions.
  */
 
 import { useState } from "react";
@@ -128,6 +129,19 @@ export function AccountDetailPage() {
                     <Field label="Bandwidth" value={`${a.bandwidth_gb} GB`} />
                     <Field label="Created"   value={formatDate(a.created_at)} />
                   </dl>
+
+                  {/* Disk usage visualization */}
+                  {a.disk_used_mb != null && a.disk_quota_mb > 0 && (
+                    <div className="mt-4">
+                      <div className="mb-1 flex items-center justify-between text-xs">
+                        <span className="text-ink-3">Disk Usage</span>
+                        <span className="font-mono text-ink-2">
+                          {a.disk_used_mb} / {a.disk_quota_mb} MB
+                        </span>
+                      </div>
+                      <DiskUsageBar used={a.disk_used_mb} total={a.disk_quota_mb} />
+                    </div>
+                  )}
                 </Card>
                 <Card className="md:col-span-2">
                   <CardHeader
@@ -180,6 +194,27 @@ export function AccountDetailPage() {
         </div>
       </Modal>
     </div>
+  );
+}
+
+// Disk usage bar component
+function DiskUsageBar({ used, total }: { used: number; total: number }) {
+  const pct = Math.min((used / total) * 100, 100);
+  const tone = pct > 90 ? "danger" : pct > 70 ? "warning" : "success";
+
+  return (
+    <>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-ink-6">
+        <div
+          className={`h-full rounded-full bg-${tone}-500 transition-all`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="mt-1 flex items-center justify-between text-[11px] text-ink-3">
+        <span>{Math.round(pct)}% used</span>
+        <span>{total - used} MB free</span>
+      </div>
+    </>
   );
 }
 

@@ -1,6 +1,7 @@
 /**
  * Accounts list. Real data, with search filter and pagination.
  * Each row links to the account detail. Actions use confirmation modals.
+ * v0.3.1 Phase B: Added bulk actions, quick filters, and improved UX.
  */
 
 import { useState, useMemo } from "react";
@@ -33,7 +34,13 @@ export function AccountsListPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Modal state
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkActionModal, setBulkActionModal] = useState<{
+    type: "suspend" | "unsuspend" | "delete";
+  } | null>(null);
+
+  // Single action modal state
   const [confirmModal, setConfirmModal] = useState<{
     type: "suspend" | "unsuspend" | "delete";
     account: Account;
@@ -86,12 +93,34 @@ export function AccountsListPage() {
     setCurrentPage(1);
   };
 
+  // Selection helpers
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === paginatedAccounts.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(paginatedAccounts.map((a) => a.id)));
+    }
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
   // Mutations
   const suspend = useMutation({
     mutationFn: (id: string) => suspendAccount(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: accountKeys.all() });
       setConfirmModal(null);
+      setBulkActionModal(null);
+      clearSelection();
     },
   });
   const unsuspend = useMutation({
@@ -99,6 +128,8 @@ export function AccountsListPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: accountKeys.all() });
       setConfirmModal(null);
+      setBulkActionModal(null);
+      clearSelection();
     },
   });
   const del = useMutation({
@@ -107,6 +138,8 @@ export function AccountsListPage() {
       qc.invalidateQueries({ queryKey: accountKeys.all() });
       qc.invalidateQueries({ queryKey: domainKeys.all() });
       setConfirmModal(null);
+      setBulkActionModal(null);
+      clearSelection();
     },
   });
 
@@ -118,9 +151,42 @@ export function AccountsListPage() {
     else if (type === "delete") del.mutate(account.id);
   };
 
+  const handleBulkAction = () => {
+    if (!bulkActionModal) return;
+    const ids = Array.from(selectedIds);
+    // Execute bulk action for each selected account
+    if (bulkActionModal.type === "suspend") {
+      ids.forEach((id) => suspend.mutate(id));
+    } else if (bulkActionModal.type === "unsuspend") {
+      ids.forEach((id) => unsuspend.mutate(id));
+    } else if (bulkActionModal.type === "delete") {
+      ids.forEach((id) => del.mutate(id));
+    }
+  };
+
   const isActionPending = suspend.isPending || unsuspend.isPending || del.isPending;
 
   const columns: Column<Account>[] = [
+    {
+      key: "_select",
+      header: (
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-ink-4 bg-surface-1 text-brand-600 focus:ring-brand-500"
+          checked={selectedIds.size === paginatedAccounts.length && paginatedAccounts.length > 0}
+          onChange={toggleSelectAll}
+        />
+      ),
+      cell: (a) => (
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-ink-4 bg-surface-1 text-brand-600 focus:ring-brand-500"
+          checked={selectedIds.has(a.id)}
+          onChange={() => toggleSelection(a.id)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ),
+    },
     {
       key: "username",
       header: "Username",
@@ -147,11 +213,22 @@ export function AccountsListPage() {
     {
       key: "quota",
       header: "Disk",
-      cell: (a) => (
-        <span className="font-mono text-xs">
-          {a.disk_used_mb != null ? `${a.disk_used_mb} / ${a.disk_quota_mb} MB` : `${a.disk_quota_mb} MB`}
-        </span>
-      ),
+      cell: (a) => {
+        const used = a.disk_used_mb ?? 0;
+        const total = a.disk_quota_mb;
+        const pct = total > 0 ? Math.min((used / total) * 100, 100) : 0;
+        const tone = pct > 90 ? "danger" : pct > 70 ? "warning" : "success";
+        return (
+          <div className="flex items-center gap-2">
+            <div className="w-16 overflow-hidden rounded-full bg-ink-6">
+              <div className={`h-1.5 rounded-full bg-${tone}-500`} style={{ width: `${pct}%` }} />
+            </div>
+            <span className="font-mono text-xs text-ink-2">
+              {a.disk_used_mb != null ? `${a.disk_used_mb}/${a.disk_quota_mb}` : a.disk_quota_mb} MB
+            </span>
+          </div>
+        );
+      },
     },
     {
       key: "status",
@@ -224,6 +301,27 @@ export function AccountsListPage() {
     },
   }[confirmModal.type] : null;
 
+  const bulkModalContent = bulkActionModal ? {
+    suspend: {
+      title: "Bulk Suspend Accounts",
+      description: `Are you sure you want to suspend ${selectedIds.size} account${selectedIds.size === 1 ? "" : "s"}? This will temporarily disable all services for these accounts.`,
+      confirmText: `Suspend ${selectedIds.size}`,
+      confirmVariant: "secondary" as const,
+    },
+    unsuspend: {
+      title: "Bulk Unsuspend Accounts",
+      description: `Are you sure you want to unsuspend ${selectedIds.size} account${selectedIds.size === 1 ? "" : "s"}? This will restore all services for these accounts.`,
+      confirmText: `Unsuspend ${selectedIds.size}`,
+      confirmVariant: "primary" as const,
+    },
+    delete: {
+      title: "Bulk Delete Accounts",
+      description: `Are you sure you want to delete ${selectedIds.size} account${selectedIds.size === 1 ? "" : "s"}? This will permanently remove all system users and associated domains. This action cannot be undone.`,
+      confirmText: `Delete ${selectedIds.size}`,
+      confirmVariant: "danger" as const,
+    },
+  }[bulkActionModal.type] : null;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -237,6 +335,45 @@ export function AccountsListPage() {
       />
 
       <Card>
+        {/* Bulk action bar */}
+        {selectedIds.size > 0 && (
+          <div className="mb-4 flex items-center justify-between rounded-md border border-brand-500/30 bg-brand-500/5 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium">{selectedIds.size} selected</span>
+              <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setBulkActionModal({ type: "suspend" })}
+                  disabled={isActionPending}
+                >
+                  Suspend
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setBulkActionModal({ type: "unsuspend" })}
+                  disabled={isActionPending}
+                >
+                  Unsuspend
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-danger"
+                  onClick={() => setBulkActionModal({ type: "delete" })}
+                  disabled={isActionPending}
+                >
+                  Delete
+                </Button>
+              </div>
+            </div>
+            <Button variant="ghost" size="sm" onClick={clearSelection}>
+              Clear selection
+            </Button>
+          </div>
+        )}
+
         {/* Filters */}
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">
           <div className="flex-1">
@@ -324,7 +461,7 @@ export function AccountsListPage() {
         )}
       </Card>
 
-      {/* Confirmation Modal */}
+      {/* Confirmation Modal (single action) */}
       <Modal
         open={!!confirmModal}
         onClose={() => !isActionPending && setConfirmModal(null)}
@@ -354,6 +491,41 @@ export function AccountsListPage() {
           {confirmModal?.type === "delete" && (
             <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-danger">
               This action is irreversible and will permanently delete all data.
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* Bulk Action Modal */}
+      <Modal
+        open={!!bulkActionModal}
+        onClose={() => !isActionPending && setBulkActionModal(null)}
+        title={bulkModalContent?.title ?? ""}
+        description={bulkModalContent?.description}
+        width="md"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setBulkActionModal(null)}
+              disabled={isActionPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={bulkModalContent?.confirmVariant}
+              loading={isActionPending}
+              onClick={handleBulkAction}
+            >
+              {bulkModalContent?.confirmText}
+            </Button>
+          </>
+        }
+      >
+        <div className="text-sm text-ink-2">
+          {bulkActionModal?.type === "delete" && (
+            <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-danger">
+              This action is irreversible and will permanently delete all selected accounts.
             </div>
           )}
         </div>
