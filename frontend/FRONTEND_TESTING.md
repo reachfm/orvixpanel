@@ -2,55 +2,100 @@
 
 ## Overview
 
-The OrvixPanel frontend uses **Vitest** as its test runner, **Testing Library** for DOM testing, and **jsdom** for browser environment simulation.
+The OrvixPanel frontend uses **Vitest** as its test runner, **@testing-library/react** for DOM testing, **@testing-library/user-event** for user interactions, and **jsdom** for browser environment simulation.
 
 ## Quick Start
 
 ```bash
 # Install dependencies (includes test deps)
-npm install
+pnpm install
 
 # Run all tests
-npm test
+pnpm test
 
 # Run tests in watch mode
-npm run test:watch
+pnpm test:watch
 
 # Run with coverage
-npm run test:coverage
+pnpm test:coverage
 ```
 
 ## Test Structure
 
 ```
 frontend/src/
-├── test/
-│   └── setup.ts          # Global test setup and mocks
 ├── lib/
 │   ├── ui/
-│   │   ├── ErrorBoundary.test.tsx
-│   │   └── Notification.test.tsx
+│   │   ├── ErrorBoundary.test.tsx     # Error boundary behavior
+│   │   ├── Feedback.test.tsx          # Error state components
+│   │   └── Notification.test.tsx      # Toast notification system
 │   └── theme/
-│       └── store.test.ts
+│       └── store.test.ts              # Theme state management
 └── pages/
-    └── *.test.tsx         # Page-level tests
+    └── *.test.tsx                     # Page-level tests (future)
 ```
+
+## Test Suites
+
+### ErrorBoundary.test.tsx (7 tests)
+Tests the React error boundary component:
+- Renders children when no error occurs
+- Renders fallback when error occurs
+- Shows error details in development mode
+- Has refresh page button
+- Has try again button
+- Renders custom fallback when provided
+- Recovers after trying again
+
+### Feedback.test.tsx (19 tests)
+Tests all error state components:
+- **ErrorState**: Default/custom rendering, retry button
+- **NetworkError**: Connection error display, try again button
+- **AuthError**: Authentication required display, log in button
+- **InlineError**: Inline error styling
+- **FormError**: Error list rendering, empty state
+- **WarningBanner**: Warning display with action
+- **ToastError**: Toast error with dismiss
+- **Spinner**: Loading spinner with size variants
+- **LoadingState**: Loading state display
+- **EmptyState**: Empty state with icon/action
+- **Skeleton**: Skeleton loading placeholder
+
+### Notification.test.tsx (18 tests)
+Tests the notification system:
+- **NotificationContainer**: Renders notifications, handles empty state
+- **useNotification hook**: Basic notifications
+- **NotificationPreferences**: Enabled/disabled, type filtering, duration
+- **Auto-dismiss**: Timed removal of notifications
+
+### store.test.ts (21 tests)
+Tests the theme store:
+- Light/dark mode toggle
+- Theme persistence
+- CSS class application
+- Initial state
 
 ## Writing Tests
 
 ### Component Tests
 
-Use `@testing-library/react` for testing React components:
-
 ```tsx
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MyComponent } from "./MyComponent";
 
 describe("MyComponent", () => {
   it("should render", () => {
     render(<MyComponent />);
     expect(screen.getByText("Hello")).toBeInTheDocument();
+  });
+
+  it("should call onClick when button is clicked", async () => {
+    const onClick = vi.fn();
+    render(<MyComponent onClick={onClick} />);
+    await userEvent.click(screen.getByRole("button"));
+    expect(onClick).toHaveBeenCalled();
   });
 });
 ```
@@ -76,50 +121,38 @@ describe("MyStore", () => {
 });
 ```
 
-### Async Tests
+### Testing User Interactions
 
-Use `waitFor` from Testing Library for async operations:
+Use `@testing-library/user-event` for realistic user interactions:
 
 ```tsx
-import { render, screen, waitFor } from "@testing-library/react";
-import { fetchData } from "./api";
-
-it("should display data after loading", async () => {
-  render(<DataComponent />);
-
-  await waitFor(() => {
-    expect(screen.getByText("Loaded Data")).toBeInTheDocument();
-  });
-});
-```
-
-### Mocking
-
-#### API Mocks
-
-```typescript
-import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MyComponent } from "./MyComponent";
+import userEvent from "@testing-library/user-event";
 
-// Mock the API module
-vi.mock("@/lib/api/myapi", () => ({
-  fetchData: vi.fn().mockResolvedValue({ name: "Test" }),
-}));
+it("should submit form with user input", async () => {
+  render(<LoginForm />);
 
-it("should display fetched data", async () => {
-  render(<MyComponent />);
-  expect(await screen.findByText("Test")).toBeInTheDocument();
+  await userEvent.type(screen.getByLabelText("Email"), "user@example.com");
+  await userEvent.type(screen.getByLabelText("Password"), "password123");
+  await userEvent.click(screen.getByRole("button", { name: /submit/i }));
+
+  expect(screen.getByText("Welcome!")).toBeInTheDocument();
 });
 ```
 
-#### Timer Mocks
+### Testing with Timers
+
+For components with timed behavior (like auto-dismiss notifications):
 
 ```typescript
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 beforeEach(() => {
   vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 it("should auto-dismiss after duration", () => {
@@ -133,6 +166,45 @@ it("should auto-dismiss after duration", () => {
 });
 ```
 
+### Testing with Persistence
+
+For stores using Zustand's persist middleware:
+
+```typescript
+import { describe, it, expect, beforeEach } from "vitest";
+import { useNotificationStore } from "./Notification";
+
+// Use localStorage mock
+const localStorageMock = {
+  getItem: vi.fn(),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+};
+vi.stubGlobal("localStorage", localStorageMock);
+
+describe("NotificationStore", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useNotificationStore.setState({
+      notifications: [],
+      preferences: {
+        enabled: true,
+        soundEnabled: false,
+        position: "bottom-right",
+        defaultDuration: 5000,
+        typesEnabled: { success: true, error: true, warning: true, info: true },
+      },
+    });
+  });
+
+  it("should persist preferences to localStorage", () => {
+    useNotificationStore.getState().updatePreferences({ enabled: false });
+    expect(localStorageMock.setItem).toHaveBeenCalled();
+  });
+});
+```
+
 ## Best Practices
 
 ### DO
@@ -142,6 +214,8 @@ it("should auto-dismiss after duration", () => {
 - Use `findBy*` queries for async content
 - Reset state in `beforeEach`
 - Mock external dependencies (API calls, timers)
+- Use `userEvent` instead of `fireEvent` for realistic interactions
+- Test the public API (rendered output, user actions)
 
 ### DON'T
 
@@ -149,29 +223,38 @@ it("should auto-dismiss after duration", () => {
 - Use `container.querySelector()` (use screen queries instead)
 - Forget to reset mocks/timers between tests
 - Test implementation details (class names, styles)
+- Use `fireEvent` when `userEvent` is available
 
 ## Coverage
 
 Coverage reports are generated in `frontend/coverage/`:
 
 ```bash
-npm run test:coverage
+pnpm test:coverage
 open coverage/index.html
 ```
 
-Minimum coverage targets:
+Current coverage targets:
 - Statements: 70%
 - Branches: 70%
 - Functions: 70%
 - Lines: 70%
 
-## CI Integration
+## Running Tests
 
-Tests run automatically on:
-- Every pull request
-- Push to `main` branch
+```bash
+# All tests
+pnpm test
 
-Failed tests block merges.
+# Watch mode
+pnpm test:watch
+
+# Specific file
+pnpm test -- src/lib/ui/Notification.test.tsx
+
+# Specific test pattern
+pnpm test -- --grep "Notification"
+```
 
 ## Debugging
 
@@ -182,9 +265,45 @@ npx vitest run src/lib/ui/Notification.test.tsx
 # Run tests matching a pattern
 npx vitest run --grep "Notification"
 
-# Open UI mode
+# Open UI mode (if available)
 npx vitest --ui
 ```
+
+## Troubleshooting
+
+### "Cannot find module" errors
+
+Ensure path aliases are configured in `tsconfig.json` and `vitest.config.ts`.
+
+### "React state updates" warnings
+
+Wrap state updates in `act()` from React or use `waitFor`.
+
+### Timer issues
+
+Always use `vi.useFakeTimers()` and clean up with `vi.useRealTimers()` in `afterEach`.
+
+### Persistence mocks
+
+For stores with Zustand persist middleware, mock localStorage before tests:
+
+```typescript
+const localStorageMock = {
+  getItem: vi.fn().mockReturnValue(null),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+};
+vi.stubGlobal("localStorage", localStorageMock);
+```
+
+## CI Integration
+
+Tests run automatically on:
+- Every pull request
+- Push to `main` branch
+
+Failed tests block merges.
 
 ## Mock Patterns
 
@@ -211,55 +330,4 @@ vi.stubGlobal("localStorage", localStorageMock);
 
 ### Router Mocks
 
-For components using TanStack Router, mock the router context:
-
-```tsx
-import { RouterContext } from "@tanstack/react-router";
-
-const renderWithRouter = (ui: ReactElement) => {
-  const memoryHistory = createMemoryHistory();
-
-  return render(
-    <RouterContext.Provider
-      value={{
-        router: mockRouter,
-        navigate: vi.fn(),
-        location: { pathname: "/" },
-      }}
-    >
-      {ui}
-    </RouterContext.Provider>
-  );
-};
-```
-
-## Running Specific Test Suites
-
-```bash
-# Unit tests only
-npm test -- --testPathPattern="store|Notification"
-
-# Integration tests
-npm test -- --testPathPattern="pages"
-
-# All tests
-npm test
-```
-
-## Troubleshooting
-
-### "Cannot find module" errors
-
-Ensure path aliases are configured in `tsconfig.json` and `vitest.config.ts`.
-
-### "React state updates" warnings
-
-Wrap state updates in `act()` from React or use `waitFor`.
-
-### Timer issues
-
-Always use `vi.useFakeTimers()` and clean up with `vi.useRealTimers()` in `afterEach`.
-
-### Jest compatibility
-
-If using Jest matchers, import `@testing-library/jest-dom` in setup file.
+For components using TanStack Router, the router context needs to be provided. Check individual test files for setup patterns.
