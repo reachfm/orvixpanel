@@ -123,6 +123,34 @@ export function importCertificate(body: ImportCertificateRequest): Promise<SSLCe
 }
 
 // -----------------------------------------------------------------------------
+// Staging Certificate API (Let's Encrypt Staging only)
+// -----------------------------------------------------------------------------
+
+export interface IssueStagingCertificateRequest {
+  domain: string;
+  email: string;
+  san_names?: string[];
+}
+
+export interface IssueStagingCertificateResponse {
+  certificate_id: string;
+  domain: string;
+  status: SSLCertStatus;
+  provider: string;
+  is_staging: boolean;
+  issued_at?: string;
+  expires_at?: string;
+  fingerprint?: string;
+  serial_number?: string;
+  message?: string;
+  warnings?: string[];
+}
+
+export function issueStagingCertificate(body: IssueStagingCertificateRequest): Promise<IssueStagingCertificateResponse> {
+  return request("/api/v1/ssl/certificates/issue", { method: "POST", body });
+}
+
+// -----------------------------------------------------------------------------
 // Events API
 // -----------------------------------------------------------------------------
 

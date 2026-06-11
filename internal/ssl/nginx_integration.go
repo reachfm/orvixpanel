@@ -344,3 +344,161 @@ func (n *NginxIntegration) ListSSLVhosts() ([]string, error) {
 
 	return sslVhosts, nil
 }
+
+// EnsureChallengeVhost creates a vhost snippet that serves ACME challenges.
+// This should be included in all vhosts to serve HTTP-01 challenges.
+func (n *NginxIntegration) EnsureChallengeVhost(challengeDir string) error {
+	// Create a challenge vhost snippet that can be included in all vhosts
+	snippetPath := filepath.Join(n.configDir, "acme-challenge.conf")
+
+	snippet := fmt.Sprintf(`# ACME HTTP-01 challenge location
+# This should be included in all vhosts
+location ^~ /.well-known/acme-challenge/ {
+    root %s;
+    default_type "text/plain";
+    allow all;
+}
+`, challengeDir)
+
+	if err := os.WriteFile(snippetPath, []byte(snippet), 0644); err != nil {
+		return &Error{Op: "write challenge vhost", Err: err}
+	}
+
+	return nil
+}
+
+// CreateChallengeVhost creates a dedicated vhost for ACME challenges.
+// This vhost listens on port 80 and serves only the challenge directory.
+func (n *NginxIntegration) CreateChallengeVhost(domain string, challengeDir string, port int) error {
+	if port == 0 {
+		port = 80
+	}
+
+	vhostPath := filepath.Join(n.configDir, fmt.Sprintf("%s-acme.conf", domain))
+
+	// Check if already exists
+	if _, err := os.Stat(vhostPath); err == nil {
+		return nil // Already exists
+	}
+
+	vhost := fmt.Sprintf(`# ACME HTTP-01 challenge vhost for %s
+server {
+    listen %d;
+    server_name %s;
+
+    # ACME HTTP-01 challenge location
+    location ^~ /.well-known/acme-challenge/ {
+        root %s;
+        default_type "text/plain";
+        allow all;
+    }
+
+    # Return 404 for all other requests
+    location / {
+        return 404;
+    }
+}
+`, domain, port, domain, challengeDir)
+
+	if err := os.WriteFile(vhostPath, []byte(vhost), 0644); err != nil {
+		return &Error{Op: "write challenge vhost", Err: err}
+	}
+
+	// Validate and reload
+	if err := n.validateNginxConfig(); err != nil {
+		os.Remove(vhostPath)
+		return &Error{Op: "validate challenge vhost", Err: err}
+	}
+
+	return n.reloadNginx()
+}
+
+// RemoveChallengeVhost removes a dedicated challenge vhost.
+func (n *NginxIntegration) RemoveChallengeVhost(domain string) error {
+	vhostPath := filepath.Join(n.configDir, fmt.Sprintf("%s-acme.conf", domain))
+
+	if _, err := os.Stat(vhostPath); os.IsNotExist(err) {
+		return nil // Already gone
+	}
+
+	if err := os.Remove(vhostPath); err != nil {
+		return &Error{Op: "remove challenge vhost", Err: err}
+	}
+
+	// Validate and reload
+	if err := n.validateNginxConfig(); err != nil {
+		return &Error{Op: "validate after removal", Err: err}
+	}
+
+	return n.reloadNginx()
+}
+
+// AddChallengeLocationToVhost adds ACME challenge location to an existing vhost.
+func (n *NginxIntegration) AddChallengeLocationToVhost(domain string, challengeDir string) error {
+	vhostPath := filepath.Join(n.configDir, domain+".conf")
+
+	content, err := os.ReadFile(vhostPath)
+	if err != nil {
+		return &Error{Op: "read vhost", Err: err}
+	}
+
+	contentStr := string(content)
+
+	// Check if already has challenge location
+	if strings.Contains(contentStr, "/.well-known/acme-challenge/") {
+		return nil // Already has it
+	}
+
+	// Create backup
+	timestamp := time.Now().Format("20060102-150405")
+	backupPath := filepath.Join(n.backupDir, domain+"."+timestamp+".conf.bak")
+	if err := os.WriteFile(backupPath, content, 0644); err != nil {
+		return &Error{Op: "create backup", Err: err}
+	}
+
+	// Find the server block and add location before closing
+	challengeLoc := fmt.Sprintf(`
+    # ACME HTTP-01 challenge
+    location ^~ /.well-known/acme-challenge/ {
+        root %s;
+        default_type "text/plain";
+        allow all;
+    }
+`, challengeDir)
+
+	// Find the last closing brace of the server block and insert before it
+	lines := strings.Split(contentStr, "\n")
+	var newLines []string
+	inserted := false
+
+	for i, line := range lines {
+		newLines = append(newLines, line)
+		// Check if this is the last line before server block closes
+		if strings.TrimSpace(line) == "}" && i == len(lines)-1 {
+			// Insert challenge location before final closing brace
+			newLines = append(newLines[:len(newLines)-1], challengeLoc, "}")
+			inserted = true
+		}
+	}
+
+	if !inserted {
+		// Append at end if we couldn't find the closing brace pattern
+		newLines = append(newLines, challengeLoc)
+	}
+
+	// Write updated vhost
+	if err := os.WriteFile(vhostPath, []byte(strings.Join(newLines, "\n")), 0644); err != nil {
+		// Restore backup
+		os.WriteFile(vhostPath, content, 0644)
+		return &Error{Op: "write vhost", Err: err}
+	}
+
+	// Validate and reload
+	if err := n.validateNginxConfig(); err != nil {
+		// Restore backup
+		os.WriteFile(vhostPath, content, 0644)
+		return &Error{Op: "validate nginx", Err: err}
+	}
+
+	return n.reloadNginx()
+}

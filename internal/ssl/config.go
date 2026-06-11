@@ -28,7 +28,25 @@ type Config struct {
 
 	// ZeroSSL settings (stub)
 	ZeroSSLAPIKey string
+
+	// Staging mode - if true, uses Let's Encrypt staging API
+	UseStaging bool
 }
+
+// ACME directory URLs
+const (
+	// ACMEDirectoryProduction is the production Let's Encrypt v2 directory
+	ACMEDirectoryProduction = "https://acme-v02.api.letsencrypt.org/directory"
+
+	// ACMEDirectoryStaging is the Let's Encrypt staging v2 directory
+	ACMEDirectoryStaging = "https://acme-staging-v02.api.letsencrypt.org/directory"
+
+	// ProviderNameLetsEncrypt is the provider name for Let's Encrypt
+	ProviderNameLetsEncrypt = "letsencrypt"
+
+	// ProviderNameLetsEncryptStaging is the provider name for Let's Encrypt staging
+	ProviderNameLetsEncryptStaging = "letsencrypt_staging"
+)
 
 // DefaultConfig returns the default SSL configuration.
 func DefaultConfig() *Config {
@@ -36,15 +54,45 @@ func DefaultConfig() *Config {
 
 	return &Config{
 		StorageDir:           filepath.Join(baseDir, "certs"),
-		ChallengeDir:         "/var/www/orvixpanel/.well-known/acme-challenge",
+		ChallengeDir:         "/var/lib/orvixpanel/acme-challenges",
 		RenewalWindowDays:    30,
 		RenewalLockFile:      "/run/orvixpanel/ssl-renew.lock",
 		MaxRenewalRetries:    3,
 		NginxConfigDir:       "/etc/nginx/conf.d/orvix",
 		NginxBackupDir:       filepath.Join(baseDir, "nginx-backup"),
-		LetsEncryptDirectoryURL: "https://acme-v02.api.letsencrypt.org/directory",
+		LetsEncryptDirectoryURL: ACMEDirectoryProduction,
 		LetsEncryptEmail:     "",
+		UseStaging:           false,
 	}
+}
+
+// StagingConfig returns a configuration with staging ACME directory.
+func StagingConfig() *Config {
+	cfg := DefaultConfig()
+	cfg.LetsEncryptDirectoryURL = ACMEDirectoryStaging
+	cfg.UseStaging = true
+	return cfg
+}
+
+// GetDirectoryURL returns the appropriate ACME directory URL based on provider.
+func (c *Config) GetDirectoryURL(provider string) string {
+	switch provider {
+	case ProviderNameLetsEncryptStaging:
+		return ACMEDirectoryStaging
+	case ProviderNameLetsEncrypt:
+		return ACMEDirectoryProduction
+	default:
+		// Use configured URL
+		if c.LetsEncryptDirectoryURL != "" {
+			return c.LetsEncryptDirectoryURL
+		}
+		return ACMEDirectoryProduction
+	}
+}
+
+// IsStagingProvider returns true if the provider is a staging provider.
+func (c *Config) IsStagingProvider(provider string) bool {
+	return provider == ProviderNameLetsEncryptStaging || c.UseStaging
 }
 
 // Validate checks the configuration for required paths and settings.

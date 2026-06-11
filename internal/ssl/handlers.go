@@ -2,6 +2,7 @@ package ssl
 
 import (
 	"context"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/orvixpanel/orvixpanel/internal/api/middleware"
@@ -325,3 +326,119 @@ func GetDashboardStatsHandler(deps SSLDeps) fiber.Handler {
 		return c.JSON(stats)
 	}
 }
+
+// IssueStagingCertificateRequest represents a staging certificate issuance request.
+type IssueStagingCertificateRequest struct {
+	Domain string   `json:"domain"`
+	Email  string   `json:"email"`
+	SANs   []string `json:"san_names,omitempty"`
+}
+
+// IssueStagingCertificateResponse represents the response for staging certificate issuance.
+type IssueStagingCertificateResponse struct {
+	CertificateID string   `json:"certificate_id"`
+	Domain       string   `json:"domain"`
+	Status       string   `json:"status"`
+	Provider     string   `json:"provider"`
+	IsStaging    bool     `json:"is_staging"`
+	IssuedAt     string   `json:"issued_at,omitempty"`
+	ExpiresAt    string   `json:"expires_at,omitempty"`
+	Fingerprint  string   `json:"fingerprint,omitempty"`
+	SerialNumber string   `json:"serial_number,omitempty"`
+	Message      string   `json:"message,omitempty"`
+	Warnings     []string `json:"warnings,omitempty"`
+}
+
+// IssueStagingCertificateHandler issues a certificate using Let's Encrypt staging.
+// POST /api/v1/ssl/certificates/issue
+func IssueStagingCertificateHandler(deps SSLDeps, challengeStore *ChallengeStore) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		var req IssueStagingCertificateRequest
+		if err := c.BodyParser(&req); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "invalid_body")
+		}
+
+		if req.Domain == "" {
+			return fiber.NewError(fiber.StatusBadRequest, "domain_required")
+		}
+
+		if req.Email == "" {
+			return fiber.NewError(fiber.StatusBadRequest, "email_required")
+		}
+
+		// Use staging configuration
+		cfg := StagingConfig()
+		cfg.LetsEncryptEmail = req.Email
+
+		// Create staging provider
+		stagingProvider := NewStagingProvider(cfg, challengeStore)
+
+		// Create manager with staging provider
+		cfg.UseStaging = true
+		_ = &StagingManager{
+			db:         deps.DB,
+			config:     cfg,
+			provider:   stagingProvider,
+			challenge:  challengeStore,
+		}
+
+		// Issue certificate via staging
+		result, err := stagingProvider.IssueCertificate(c.Context(), IssueRequest{
+			Domain:   req.Domain,
+			SANs:     req.SANs,
+			Provider: ProviderNameLetsEncryptStaging,
+		})
+
+		if err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "staging_issue_failed: "+err.Error())
+		}
+
+		// Create certificate record
+		cert := &models.SSLCertificate{
+			CommonName:  req.Domain,
+			Provider:    ProviderNameLetsEncryptStaging,
+			Status:      models.CertStatusIssued,
+			AutoRenew:   false, // Staging certs should not auto-renew
+			TenantID:    "system",
+			Fingerprint: result.Fingerprint,
+			SerialNumber: result.SerialNum,
+		}
+
+		if result.NotAfter.After(time.Now()) {
+			cert.ExpiresAt = &result.NotAfter
+		}
+
+		if err := deps.DB.WithContext(c.Context()).Create(cert).Error; err != nil {
+			// Log but don't fail
+		}
+
+		return c.Status(fiber.StatusCreated).JSON(IssueStagingCertificateResponse{
+			CertificateID: cert.ID,
+			Domain:        req.Domain,
+			Status:        string(models.CertStatusIssued),
+			Provider:      ProviderNameLetsEncryptStaging,
+			IsStaging:     true,
+			IssuedAt:      time.Now().Format(time.RFC3339),
+			ExpiresAt:     result.NotAfter.Format(time.RFC3339),
+			Fingerprint:   result.Fingerprint,
+			SerialNumber:   result.SerialNum,
+			Message:       "Certificate issued using Let's Encrypt STAGING. NOT FOR PRODUCTION USE.",
+			Warnings: []string{
+				"This is a STAGING certificate issued by Let's Encrypt",
+				"Browsers will show security warnings",
+				"Do not use in production environments",
+			},
+		})
+	}
+}
+
+// StagingManager wraps the SSL manager for staging operations.
+type StagingManager struct {
+	db        *gorm.DB
+	config    *Config
+	provider  *StagingProvider
+	challenge *ChallengeStore
+}
+
+// Note: ACMEChallengeHandler is defined in acme_handler.go
+// This avoids duplicate declarations

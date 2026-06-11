@@ -158,11 +158,19 @@ func registerV1(g fiber.Router, d Deps) {
 	sslGroup.Delete("/certificates/:id", ssl.DeleteCertificateHandler(sslDeps, nil)).Name("ssl.cert.write")
 	sslGroup.Post("/import", ssl.ImportCertificateHandler(sslDeps, nil)).Name("ssl.cert.write")
 
+	// Staging certificate issuance (Let's Encrypt staging only)
+	challengeStore := ssl.NewChallengeStore(d.Config.SSL.ChallengeDir)
+	sslGroup.Post("/certificates/issue", ssl.IssueStagingCertificateHandler(sslDeps, challengeStore)).Name("ssl.cert.staging")
+
 	// Health & events.
 	sslGroup.Get("/health", ssl.GetHealthHandler(sslDeps)).Name("ssl.health.read")
 	sslGroup.Get("/events", ssl.GetSSLEventsHandler(sslDeps)).Name("ssl.events.read")
 	sslGroup.Get("/certificates/:id/events", ssl.GetCertificateEventsHandler(sslDeps)).Name("ssl.events.read")
 	sslGroup.Get("/dashboard", ssl.GetDashboardStatsHandler(sslDeps)).Name("ssl.dashboard.read")
+
+	// ACME HTTP-01 challenge route (must be before static file handlers)
+	// This route serves challenge files for Let's Encrypt validation
+	g.Get("/.well-known/acme-challenge/:token", ssl.NewACMEChallengeHandler(challengeStore).Handle).Name("acme.challenge")
 
 	// Update Manager (v0.7.2) — Admin-only routes for update management.
 	updateAdmin := g.Group("/admin/update", middleware.RequirePermission("admin", "*"))

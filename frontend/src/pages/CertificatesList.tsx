@@ -27,10 +27,12 @@ import {
   importCertificate,
   renewCertificate,
   deleteCertificate,
+  issueStagingCertificate,
   type SSLCertificate,
   type SSLCertStatus,
   type IssueCertificateRequest,
   type SSLProvider,
+  type IssueStagingCertificateResponse,
 } from "@/lib/api/ssl";
 
 const PAGE_SIZE = 20;
@@ -71,15 +73,22 @@ export function CertificatesListPage() {
 
   // Modal state
   const [issueModalOpen, setIssueModalOpen] = useState(false);
+  const [stagingModalOpen, setStagingModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [deleteModal, setDeleteModal] = useState<SSLCertificate | null>(null);
   const [renewModal, setRenewModal] = useState<SSLCertificate | null>(null);
+  const [stagingResult, setStagingResult] = useState<IssueStagingCertificateResponse | null>(null);
 
   // Issue form state
   const [newCertDomain, setNewCertDomain] = useState("");
   const [newCertSANs, setNewCertSANs] = useState("");
   const [newCertProvider, setNewCertProvider] = useState<SSLProvider>("letsencrypt");
   const [newCertAutoRenew, setNewCertAutoRenew] = useState(true);
+
+  // Staging form state
+  const [stagingDomain, setStagingDomain] = useState("");
+  const [stagingEmail, setStagingEmail] = useState("");
+  const [stagingSANs, setStagingSANs] = useState("");
 
   // Import form state
   const [importDomain, setImportDomain] = useState("");
@@ -114,6 +123,16 @@ export function CertificatesListPage() {
       qc.invalidateQueries({ queryKey: sslKeys.all });
       setImportModalOpen(false);
       resetImportForm();
+    },
+  });
+
+  // Staging mutation
+  const stagingMutation = useMutation({
+    mutationFn: (body: { domain: string; email: string; san_names?: string[] }) =>
+      issueStagingCertificate(body),
+    onSuccess: (data) => {
+      setStagingResult(data);
+      qc.invalidateQueries({ queryKey: sslKeys.all });
     },
   });
 
@@ -203,7 +222,28 @@ export function CertificatesListPage() {
     });
   };
 
-  const isPending = issueMutation.isPending || importMutation.isPending || renewMutation.isPending || deleteMutation.isPending;
+  const handleIssueStagingCert = () => {
+    if (!stagingDomain.trim() || !stagingEmail.trim()) return;
+    stagingMutation.mutate({
+      domain: stagingDomain.trim(),
+      email: stagingEmail.trim(),
+      san_names: stagingSANs ? stagingSANs.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+    });
+  };
+
+  const resetStagingForm = () => {
+    setStagingDomain("");
+    setStagingEmail("");
+    setStagingSANs("");
+    setStagingResult(null);
+  };
+
+  const closeStagingModal = () => {
+    setStagingModalOpen(false);
+    resetStagingForm();
+  };
+
+  const isPending = issueMutation.isPending || importMutation.isPending || renewMutation.isPending || deleteMutation.isPending || stagingMutation.isPending;
 
   // Table columns
   const columns: Column<SSLCertificate>[] = [
@@ -287,6 +327,9 @@ export function CertificatesListPage() {
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setImportModalOpen(true)}>
               Import
+            </Button>
+            <Button variant="secondary" onClick={() => setStagingModalOpen(true)}>
+              Issue Staging
             </Button>
             <Button variant="primary" onClick={() => setIssueModalOpen(true)}>
               Issue New
@@ -520,6 +563,126 @@ export function CertificatesListPage() {
             />
           </div>
         </div>
+      </Modal>
+
+      {/* Issue Staging Certificate Modal */}
+      <Modal
+        open={stagingModalOpen}
+        onClose={() => !isPending && closeStagingModal()}
+        title="Issue Staging Certificate"
+        description="Test SSL certificate issuance using Let's Encrypt STAGING."
+        footer={
+          stagingResult ? (
+            <>
+              <Button variant="secondary" onClick={closeStagingModal}>
+                Close
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={closeStagingModal} disabled={isPending}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleIssueStagingCert}
+                disabled={!stagingDomain.trim() || !stagingEmail.trim() || stagingMutation.isPending}
+                loading={stagingMutation.isPending}
+              >
+                Issue Staging Certificate
+              </Button>
+            </>
+          )
+        }
+      >
+        {stagingResult ? (
+          <div className="space-y-4">
+            <div className="rounded-md border border-success/30 bg-success/5 p-4">
+              <div className="flex items-center gap-2 text-success font-medium mb-2">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                  <polyline points="22 4 12 14.01 9 11.01" />
+                </svg>
+                Staging Certificate Issued
+              </div>
+              <div className="text-sm text-ink-2">
+                Certificate ID: <span className="font-mono text-ink-1">{stagingResult.certificate_id}</span>
+              </div>
+              {stagingResult.expires_at && (
+                <div className="text-sm text-ink-2 mt-1">
+                  Expires: <span className="text-ink-1">{new Date(stagingResult.expires_at).toLocaleDateString()}</span>
+                </div>
+              )}
+            </div>
+            {stagingResult.warnings && stagingResult.warnings.length > 0 && (
+              <div className="rounded-md border border-warning/30 bg-warning/5 p-3">
+                <div className="text-sm font-medium text-warning mb-2">Important Warnings</div>
+                <ul className="text-sm text-ink-2 space-y-1">
+                  {stagingResult.warnings.map((warning, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 text-warning mt-0.5 flex-shrink-0">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                        <line x1="12" y1="9" x2="12" y2="13" />
+                        <line x1="12" y1="17" x2="12.01" y2="17" />
+                      </svg>
+                      {warning}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="text-xs text-ink-3">
+              Staging certificates are NOT trusted by browsers. Use only for testing purposes.
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Staging warning banner */}
+            <div className="rounded-md border border-warning/30 bg-warning/5 p-3">
+              <div className="flex items-start gap-3">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5 text-warning flex-shrink-0 mt-0.5">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+                <div>
+                  <div className="text-sm font-medium text-warning">Let's Encrypt Staging Environment</div>
+                  <div className="text-xs text-ink-2 mt-1">
+                    Certificates issued here are for <strong>testing only</strong>. They will show security warnings in browsers and are not suitable for production use.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <Input
+              label="Domain *"
+              placeholder="test.example.com"
+              value={stagingDomain}
+              onChange={(e) => setStagingDomain(e.target.value)}
+            />
+            <Input
+              label="Email *"
+              placeholder="admin@example.com"
+              type="email"
+              value={stagingEmail}
+              onChange={(e) => setStagingEmail(e.target.value)}
+              hint="Required for Let's Encrypt account registration"
+            />
+            <Input
+              label="Additional Domains (SANs)"
+              placeholder="www.test.example.com, api.test.example.com"
+              value={stagingSANs}
+              onChange={(e) => setStagingSANs(e.target.value)}
+              hint="Comma-separated list of additional domains"
+            />
+
+            {stagingMutation.isError && (
+              <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-sm text-danger">
+                Failed to issue staging certificate: {stagingMutation.error?.message || "Unknown error"}
+              </div>
+            )}
+          </div>
+        )}
       </Modal>
 
       {/* Renew Confirmation Modal */}

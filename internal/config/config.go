@@ -17,12 +17,13 @@ import (
 
 // Config is the root configuration object.
 type Config struct {
-	Server  ServerConfig  `mapstructure:"server"`
-	License LicenseConfig `mapstructure:"license"`
-	DB      DBConfig      `mapstructure:"database"`
-	Redis   RedisConfig   `mapstructure:"redis"`
-	Auth    AuthConfig    `mapstructure:"auth"`
-	DNS     DNSConfig     `mapstructure:"dns"`
+	Server      ServerConfig  `mapstructure:"server"`
+	License     LicenseConfig `mapstructure:"license"`
+	DB          DBConfig      `mapstructure:"database"`
+	Redis       RedisConfig   `mapstructure:"redis"`
+	Auth        AuthConfig    `mapstructure:"auth"`
+	DNS         DNSConfig     `mapstructure:"dns"`
+	SSL         SSLConfig     `mapstructure:"ssl"`
 }
 
 type ServerConfig struct {
@@ -64,6 +65,11 @@ type DNSConfig struct {
 	PowerDNSURL    string `mapstructure:"powerdns_url"`    // e.g., "http://127.0.0.1:8081"
 	PowerDNSAPIKey string `mapstructure:"powerdns_api_key"` // API key for PowerDNS
 	PowerDNSServer string `mapstructure:"powerdns_server"` // e.g., "localhost"
+}
+
+// SSLConfig holds SSL/ACME configuration settings.
+type SSLConfig struct {
+	ChallengeDir string `mapstructure:"challenge_dir"` // Directory for ACME HTTP-01 challenges
 }
 
 // Load reads configuration from TOML + environment.
@@ -125,6 +131,9 @@ func Load() (*Config, error) {
 	// DNS defaults
 	v.SetDefault("dns.mode", "local")
 	v.SetDefault("dns.powerdns_server", "localhost")
+
+	// SSL defaults
+	v.SetDefault("ssl.challenge_dir", "/var/lib/orvixpanel/acme-challenges")
 
 	// File lookup. The production config file is orvixpanel.toml
 	// in /etc/orvixpanel (or ./configs, or .). We DO NOT search
