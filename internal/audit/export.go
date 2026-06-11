@@ -13,6 +13,7 @@ package audit
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -20,19 +21,28 @@ import (
 	"time"
 
 	"github.com/orvixpanel/orvixpanel/internal/db/models"
+	"gorm.io/gorm"
 )
 
 // ExportRequest is the body for POST /admin/audit-log/export.
 type ExportRequest struct {
-	Transport    string     `json:"transport"`     // "syslog_udp" | "syslog_tcp" | "file"
-	Host         string     `json:"host,omitempty"`
-	Port         int        `json:"port,omitempty"`
-	FilePath     string     `json:"file_path,omitempty"` // for transport=file
-	Since        *time.Time `json:"since,omitempty"`
-	Until        *time.Time `json:"until,omitempty"`
-	DeviceVendor string     `json:"device_vendor,omitempty"`
-	DeviceProduct string    `json:"device_product,omitempty"`
-	MaxRows      int        `json:"max_rows,omitempty"` // safety cap; default 10000
+	Format        string     `json:"format"`                     // "cef" | "csv" | "json" (default: "cef")
+	Transport     string     `json:"transport"`                  // "syslog_udp" | "syslog_tcp" | "file"
+	Host          string     `json:"host,omitempty"`
+	Port          int        `json:"port,omitempty"`
+	FilePath      string     `json:"file_path,omitempty"`        // for transport=file
+	Since         *time.Time `json:"since,omitempty"`
+	Until         *time.Time `json:"until,omitempty"`
+	DeviceVendor  string     `json:"device_vendor,omitempty"`
+	DeviceProduct string     `json:"device_product,omitempty"`
+	MaxRows       int        `json:"max_rows,omitempty"`         // safety cap; default 10000
+	// Filters
+	Action       string `json:"action,omitempty"`        // filter by action (prefix match)
+	Result       string `json:"result,omitempty"`        // filter by result (success|failure|denied)
+	ResourceType string `json:"resource_type,omitempty"` // filter by resource type
+	UserID       string `json:"user_id,omitempty"`       // filter by user ID
+	TenantID     string `json:"tenant_id,omitempty"`     // filter by tenant ID (for multi-tenant)
+	Search       string `json:"search,omitempty"`         // full-text search across detail field
 }
 
 // ExportResponse is the result envelope.
@@ -119,6 +129,115 @@ func FormatSyslog(host, cefLine string) string {
 	return fmt.Sprintf("<%d>%s %s %s: %s", pri, ts, host, SyslogTag, cefLine)
 }
 
+// CSVHeader is the header row for CSV export.
+const CSVHeader = "id,timestamp,user_id,user_email,user_role,actor_ip,session_id,action,resource_type,resource_id,resource_name,result,duration_ms,detail"
+
+// FormatCSV serializes one audit row as a CSV line.
+func FormatCSV(r models.AuditEntry) string {
+	return fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s",
+		escapeCSV(r.ID),
+		r.Timestamp.Format(time.RFC3339),
+		escapeCSV(r.UserID),
+		escapeCSV(r.UserEmail),
+		escapeCSV(r.UserRole),
+		escapeCSV(r.ActorIP),
+		escapeCSV(r.SessionID),
+		escapeCSV(r.Action),
+		escapeCSV(r.ResourceType),
+		escapeCSV(r.ResourceID),
+		escapeCSV(r.ResourceName),
+		escapeCSV(r.Result),
+		r.DurationMS,
+		escapeCSV(r.Detail),
+	)
+}
+
+// ExportCSV exports all rows as CSV format to the writer.
+// Returns the number of rows exported and any error.
+func (a *Auditor) ExportCSV(ctx context.Context, w func(string) error, req ExportRequest) (int, error) {
+	q := a.db.WithContext(ctx).Model(&models.AuditEntry{})
+	applyFilters(q, req)
+	var rows []models.AuditEntry
+	if err := q.Order("timestamp ASC").Limit(req.MaxRows).Find(&rows).Error; err != nil {
+		return 0, fmt.Errorf("query rows: %w", err)
+	}
+	if err := w(CSVHeader); err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, r := range rows {
+		if err := w(FormatCSV(r)); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, nil
+}
+
+// ExportJSON exports all rows as JSON Lines format to the writer.
+// Each line is a valid JSON object representing one audit entry.
+func (a *Auditor) ExportJSON(ctx context.Context, w func(string) error, req ExportRequest) (int, error) {
+	q := a.db.WithContext(ctx).Model(&models.AuditEntry{})
+	applyFilters(q, req)
+	var rows []models.AuditEntry
+	if err := q.Order("timestamp ASC").Limit(req.MaxRows).Find(&rows).Error; err != nil {
+		return 0, fmt.Errorf("query rows: %w", err)
+	}
+	count := 0
+	for _, r := range rows {
+		line, err := formatJSONEntry(r)
+		if err != nil {
+			return count, fmt.Errorf("format row: %w", err)
+		}
+		if err := w(line); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, nil
+}
+
+// formatJSONEntry converts an audit entry to a JSON line.
+func formatJSONEntry(r models.AuditEntry) (string, error) {
+	type jsonEntry struct {
+		ID           string `json:"id"`
+		Timestamp    string `json:"timestamp"`
+		UserID       string `json:"user_id,omitempty"`
+		UserEmail    string `json:"user_email,omitempty"`
+		UserRole     string `json:"user_role,omitempty"`
+		ActorIP      string `json:"actor_ip,omitempty"`
+		SessionID    string `json:"session_id,omitempty"`
+		Action       string `json:"action"`
+		ResourceType string `json:"resource_type,omitempty"`
+		ResourceID   string `json:"resource_id,omitempty"`
+		ResourceName string `json:"resource_name,omitempty"`
+		Result       string `json:"result"`
+		DurationMS   int    `json:"duration_ms,omitempty"`
+		Detail       string `json:"detail,omitempty"`
+	}
+	entry := jsonEntry{
+		ID:           r.ID,
+		Timestamp:    r.Timestamp.Format(time.RFC3339),
+		UserID:       r.UserID,
+		UserEmail:    r.UserEmail,
+		UserRole:     r.UserRole,
+		ActorIP:      r.ActorIP,
+		SessionID:    r.SessionID,
+		Action:       r.Action,
+		ResourceType: r.ResourceType,
+		ResourceID:   r.ResourceID,
+		ResourceName: r.ResourceName,
+		Result:       r.Result,
+		DurationMS:   r.DurationMS,
+		Detail:       r.Detail,
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 // Export runs the export. Returns the result envelope + the first
 // error encountered (if any). The audit chain is unaffected.
 func (a *Auditor) Export(ctx context.Context, req ExportRequest) (*ExportResponse, error) {
@@ -129,21 +248,13 @@ func (a *Auditor) Export(ctx context.Context, req ExportRequest) (*ExportRespons
 	if req.MaxRows <= 0 {
 		req.MaxRows = 10000
 	}
-
-	// 1. Query rows.
-	q := a.db.WithContext(ctx).Model(&models.AuditEntry{})
-	if req.Since != nil {
-		q = q.Where("timestamp >= ?", *req.Since)
-	}
-	if req.Until != nil {
-		q = q.Where("timestamp <= ?", *req.Until)
-	}
-	var rows []models.AuditEntry
-	if err := q.Order("timestamp ASC").Limit(req.MaxRows).Find(&rows).Error; err != nil {
-		return resp, fmt.Errorf("query rows: %w", err)
+	// Default format is CEF
+	format := req.Format
+	if format == "" {
+		format = "cef"
 	}
 
-	// 2. Wire transport.
+	// 1. Wire transport.
 	var write func(line string) error
 	switch req.Transport {
 	case "file":
@@ -197,17 +308,41 @@ func (a *Auditor) Export(ctx context.Context, req ExportRequest) (*ExportRespons
 		return resp, fmt.Errorf("unknown transport: %q", req.Transport)
 	}
 
-	// 3. Stream rows.
-	for _, r := range rows {
-		cef := FormatCEF(r, req.DeviceVendor, req.DeviceProduct, CEFVersion)
-		if err := write(cef); err != nil {
-			resp.Errors++
-			if resp.FirstError == "" {
-				resp.FirstError = err.Error()
-			}
-			continue
+	// 2. Export based on format.
+	switch format {
+	case "csv":
+		count, err := a.ExportCSV(ctx, write, req)
+		resp.Exported = count
+		if err != nil {
+			resp.FirstError = err.Error()
 		}
-		resp.Exported++
+	case "json":
+		count, err := a.ExportJSON(ctx, write, req)
+		resp.Exported = count
+		if err != nil {
+			resp.FirstError = err.Error()
+		}
+	case "cef":
+		fallthrough
+	default:
+		// CEF export with filters
+		q := a.db.WithContext(ctx).Model(&models.AuditEntry{})
+		applyFilters(q, req)
+		var rows []models.AuditEntry
+		if err := q.Order("timestamp ASC").Limit(req.MaxRows).Find(&rows).Error; err != nil {
+			return resp, fmt.Errorf("query rows: %w", err)
+		}
+		for _, r := range rows {
+			cef := FormatCEF(r, req.DeviceVendor, req.DeviceProduct, CEFVersion)
+			if err := write(cef); err != nil {
+				resp.Errors++
+				if resp.FirstError == "" {
+					resp.FirstError = err.Error()
+				}
+				continue
+			}
+			resp.Exported++
+		}
 	}
 	resp.FinishedAt = time.Now().UTC()
 	return resp, nil
@@ -254,4 +389,44 @@ func severityFromResult(r string) string {
 		return "5"
 	}
 	return "5"
+}
+
+// escapeCSV escapes a string for CSV output.
+// It wraps in quotes if necessary and escapes internal quotes.
+func escapeCSV(s string) string {
+	if s == "" {
+		return ""
+	}
+	needsQuotes := strings.ContainsAny(s, `",`+"\n") || strings.HasPrefix(s, " ")
+	if !needsQuotes {
+		return s
+	}
+	// Escape internal quotes by doubling them
+	s = strings.ReplaceAll(s, `"`, `""`)
+	return `"` + s + `"`
+}
+
+// applyFilters applies the filter options from ExportRequest to the query.
+func applyFilters(q *gorm.DB, req ExportRequest) {
+	if req.Since != nil {
+		q = q.Where("timestamp >= ?", *req.Since)
+	}
+	if req.Until != nil {
+		q = q.Where("timestamp <= ?", *req.Until)
+	}
+	if req.Action != "" {
+		q = q.Where("action LIKE ?", req.Action+"%")
+	}
+	if req.Result != "" {
+		q = q.Where("result = ?", req.Result)
+	}
+	if req.ResourceType != "" {
+		q = q.Where("resource_type = ?", req.ResourceType)
+	}
+	if req.UserID != "" {
+		q = q.Where("user_id = ?", req.UserID)
+	}
+	if req.Search != "" {
+		q = q.Where("detail LIKE ?", "%"+req.Search+"%")
+	}
 }
