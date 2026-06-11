@@ -2,6 +2,7 @@ package v1
 
 import (
 	"github.com/gofiber/fiber/v2"
+	"github.com/orvixpanel/orvixpanel/internal/health"
 	"github.com/orvixpanel/orvixpanel/internal/update"
 )
 
@@ -199,16 +200,28 @@ func UpdateSchedulerDisable(c *fiber.Ctx) error {
 	})
 }
 
-// SystemHealth returns system health status.
+// SystemHealth returns real-time system health metrics.
 func SystemHealth(c *fiber.Ctx) error {
-	checks, err := update.PreflightChecks(&update.UpdateConfig{})
+	// Collect real metrics from /proc filesystem
+	collector, err := health.NewCollector()
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "failed to initialize health collector: " + err.Error(),
 		})
 	}
 
+	metrics, err := collector.Collect()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to collect metrics: " + err.Error(),
+		})
+	}
+
+	// Also run preflight checks for update readiness
+	checks, _ := update.PreflightChecks(&update.UpdateConfig{})
+
 	return c.JSON(fiber.Map{
-		"checks": checks,
+		"metrics": metrics,
+		"checks":  checks,
 	})
 }
