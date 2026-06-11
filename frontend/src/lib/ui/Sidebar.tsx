@@ -28,6 +28,13 @@ const navSections: NavSection[] = [
       { to: "/", label: "Dashboard", end: true, icon: <IconHome /> },
       { to: "/accounts", label: "Accounts", icon: <IconUsers /> },
       { to: "/domains", label: "Domains", icon: <IconGlobe /> },
+    ],
+  },
+  {
+    label: "Hosting",
+    items: [
+      { to: "/hosting/create", label: "Create Website", icon: <IconPlus /> },
+      { to: "/hosting/provisioning/jobs", label: "Provisioning Jobs", icon: <IconServer /> },
       { to: "/hosting/plans", label: "Hosting Plans", icon: <IconLayers /> },
     ],
   },
@@ -299,6 +306,24 @@ function IconLayers() {
       <polygon points="12 2 2 7 12 12 22 7 12 2" />
       <polyline points="2 17 12 22 22 17" />
       <polyline points="2 12 12 17 22 12" />
+    </Icon>
+  );
+}
+function IconServer() {
+  return (
+    <Icon>
+      <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+      <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+      <line x1="6" y1="6" x2="6.01" y2="6" />
+      <line x1="6" y1="18" x2="6.01" y2="18" />
+    </Icon>
+  );
+}
+function IconPlus() {
+  return (
+    <Icon>
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
     </Icon>
   );
 }

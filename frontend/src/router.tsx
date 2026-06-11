@@ -60,6 +60,9 @@ import { NotificationSettingsPage } from "@/pages/NotificationSettings";
 import { PlansListPage } from "@/pages/PlansList";
 import { NewPlanPage } from "@/pages/NewPlanPage";
 import { PlanDetailPage } from "@/pages/PlanDetail";
+import { CreateWebsitePage } from "@/pages/CreateWebsitePage";
+import { ProvisioningJobsPage } from "@/pages/ProvisioningJobsPage";
+import { ProvisioningJobDetailPage } from "@/pages/ProvisioningJobDetailPage";
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
@@ -258,6 +261,25 @@ const planDetailRoute = createRoute({
   component: PlanDetailPage,
 });
 
+// Domain Provisioning routes
+const createWebsiteRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/hosting/create",
+  component: CreateWebsitePage,
+});
+
+const provisioningJobsRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/hosting/provisioning/jobs",
+  component: ProvisioningJobsPage,
+});
+
+const provisioningJobDetailRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/hosting/provisioning/jobs/$id",
+  component: ProvisioningJobDetailPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   appLayoutRoute.addChildren([
@@ -290,6 +312,9 @@ const routeTree = rootRoute.addChildren([
     plansListRoute,
     newPlanRoute,
     planDetailRoute,
+    createWebsiteRoute,
+    provisioningJobsRoute,
+    provisioningJobDetailRoute,
   ]),
 ]);
 

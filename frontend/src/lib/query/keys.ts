@@ -74,3 +74,11 @@ export const planKeys = {
   list:   (): readonly unknown[] => ["plans", "list"],
   detail: (id: string): readonly unknown[] => ["plans", "detail", id],
 };
+
+// Domain Provisioning
+export const provisioningKeys = {
+  all:    (): readonly unknown[] => ["provisioning"],
+  list:   (): readonly unknown[] => ["provisioning", "jobs"],
+  detail: (id: string): readonly unknown[] => ["provisioning", "jobs", "detail", id],
+  events: (jobId: string): readonly unknown[] => ["provisioning", "jobs", "events", jobId],
+};
