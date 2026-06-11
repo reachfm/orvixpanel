@@ -67,3 +67,10 @@ export const dnsTemplateKeys = {
   list:   (): readonly unknown[] => ["dns", "templates", "list"],
   detail: (id: string): readonly unknown[] => ["dns", "templates", "detail", id],
 };
+
+// Hosting Plans
+export const planKeys = {
+  all:    (): readonly unknown[] => ["plans"],
+  list:   (): readonly unknown[] => ["plans", "list"],
+  detail: (id: string): readonly unknown[] => ["plans", "detail", id],
+};

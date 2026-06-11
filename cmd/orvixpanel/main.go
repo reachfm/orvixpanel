@@ -28,6 +28,7 @@ import (
 	"github.com/orvixpanel/orvixpanel/internal/db"
 	"github.com/orvixpanel/orvixpanel/internal/dns"
 	"github.com/orvixpanel/orvixpanel/internal/hosting"
+	"github.com/orvixpanel/orvixpanel/internal/hosting/plans"
 	"github.com/orvixpanel/orvixpanel/internal/license"
 	"github.com/orvixpanel/orvixpanel/internal/quota"
 	"github.com/orvixpanel/orvixpanel/internal/rbac"
@@ -609,6 +610,10 @@ func run() error {
 		log.Info().Msg("dns engine running in local-only mode")
 	}
 
+	// 5f. v0.7.x Hosting Plans service.
+	plansSvc := plans.NewStore(database)
+	log.Info().Msg("hosting plans service initialized")
+
 	// 6. HTTP server.
 	server := api.NewServer(api.Deps{
 		Config:       cfg,
@@ -622,6 +627,7 @@ func run() error {
 		APIKeys:      apiKeySvc,
 		Hosting:      hostingSvc,
 		DNS:          dnsSvc,
+		Plans:        plansSvc,
 	})
 
 	httpErr := make(chan error, 1)

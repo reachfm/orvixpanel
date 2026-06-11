@@ -57,6 +57,9 @@ import { MailStatsPage } from "@/pages/MailStats";
 import { MailDomainDetailPage } from "@/pages/MailDomainDetail";
 import { UpdateCenterPage } from "@/pages/UpdateCenter";
 import { NotificationSettingsPage } from "@/pages/NotificationSettings";
+import { PlansListPage } from "@/pages/PlansList";
+import { NewPlanPage } from "@/pages/NewPlanPage";
+import { PlanDetailPage } from "@/pages/PlanDetail";
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
@@ -236,6 +239,25 @@ const mailStatsRoute = createRoute({
   component: MailStatsPage,
 });
 
+// Hosting Plans routes
+const plansListRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/hosting/plans",
+  component: PlansListPage,
+});
+
+const newPlanRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/hosting/plans/new",
+  component: NewPlanPage,
+});
+
+const planDetailRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/hosting/plans/$id",
+  component: PlanDetailPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   appLayoutRoute.addChildren([
@@ -265,6 +287,9 @@ const routeTree = rootRoute.addChildren([
     mailForwardersRoute,
     mailAuditLogRoute,
     mailStatsRoute,
+    plansListRoute,
+    newPlanRoute,
+    planDetailRoute,
   ]),
 ]);
 

@@ -34,6 +34,7 @@ const labelMap: Record<string, string> = {
   "audit-log": "Audit Log",
   settings: "Settings",
   notifications: "Notifications",
+  plans: "Hosting Plans",
   new: "New",
   usage: "Usage",
 };

@@ -28,6 +28,7 @@ const navSections: NavSection[] = [
       { to: "/", label: "Dashboard", end: true, icon: <IconHome /> },
       { to: "/accounts", label: "Accounts", icon: <IconUsers /> },
       { to: "/domains", label: "Domains", icon: <IconGlobe /> },
+      { to: "/hosting/plans", label: "Hosting Plans", icon: <IconLayers /> },
     ],
   },
   {
@@ -289,6 +290,15 @@ function IconBell() {
     <Icon>
       <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
       <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </Icon>
+  );
+}
+function IconLayers() {
+  return (
+    <Icon>
+      <polygon points="12 2 2 7 12 12 22 7 12 2" />
+      <polyline points="2 17 12 22 22 17" />
+      <polyline points="2 12 12 17 22 12" />
     </Icon>
   );
 }

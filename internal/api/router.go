@@ -189,4 +189,19 @@ func registerV1(g fiber.Router, d Deps) {
 	provGroup.Get("/jobs", v1.ListJobsHandler(provDeps)).Name("provisioning.read")
 	provGroup.Get("/jobs/:id", v1.GetJobHandler(provDeps)).Name("provisioning.read")
 	provGroup.Get("/jobs/:id/events", v1.ListEventsHandler(provDeps)).Name("provisioning.read")
+
+	// Hosting Plans (v0.7.x).
+	plansDeps := v1.HostingPlansDeps{
+		DB:    d.DB,
+		Plans: d.Plans,
+		Audit: d.Audit,
+	}
+	plansGroup := g.Group("/hosting/plans")
+	plansGroup.Get("/", v1.ListPlansHandler(plansDeps)).Name("hosting.plans.read")
+	plansGroup.Post("/", v1.CreatePlanHandler(plansDeps)).Name("hosting.plans.write")
+	plansGroup.Get("/:id", v1.GetPlanHandler(plansDeps)).Name("hosting.plans.read")
+	plansGroup.Put("/:id", v1.UpdatePlanHandler(plansDeps)).Name("hosting.plans.write")
+	plansGroup.Delete("/:id", v1.DeletePlanHandler(plansDeps)).Name("hosting.plans.write")
+	plansGroup.Post("/:id/activate", v1.ActivatePlanHandler(plansDeps)).Name("hosting.plans.write")
+	plansGroup.Post("/:id/deactivate", v1.DeactivatePlanHandler(plansDeps)).Name("hosting.plans.write")
 }
